@@ -13,13 +13,14 @@ elm-bench will plug each `remove` function into an elm-benchmark program and
 give you the results on the CLI:
 
 $ elm-bench -v ./listRemoveOld -v ./listRemoveNew remove 99 "List.range 0 1000"
-Benchmarking function `remove`.
-  ./listRemoveOld   ████████████████████   351 ns   baseline
-  ./listRemoveNew   ██████████████         246 ns   30% faster
+Benchmarking function remove with args 42 and List.range 0 1000.
+  old   ████████████████████   316 ns/run   baseline
+  new   ████████████████       254 ns/run   20% faster
 
 TODO: eject into elm-benchmark code (receive an arg saying where to put it, and use that instead of the temp dir, and don't delete that afterwards)
 TODO: check the Debug.toString representation of the versions is the same, and show a warning if it's not
 TODO: JSON report mode
+TODO: use us, ms, s when it gets too big
 */
 
 import { parseArgs, promisify } from "node:util";
@@ -28,11 +29,21 @@ import path from "node:path";
 import os from "node:os";
 import * as childProcess from "node:child_process";
 
-import semver from "semver";
+// Custom semver comparison function
+const semverGt = (v1, v2) => {
+  const parse = v => v.split('.').map(Number);
+  const [major1, minor1, patch1] = parse(v1);
+  const [major2, minor2, patch2] = parse(v2);
+
+  if (major1 !== major2) return major1 > major2;
+  if (minor1 !== minor2) return minor1 > minor2;
+  return patch1 > patch2;
+};
 
 const capitalize = (str) => str.charAt(0).toUpperCase() + str.slice(1);
 
 const green = (str) => `\x1b[32m${str}\x1b[0m`;
+const blue = (str) => `\x1b[34m${str}\x1b[0m`;
 
 // 1. Parse arguments
 
@@ -61,7 +72,16 @@ const versions = [...values.version];
 const functionName = positionals[0];
 const args = positionals.slice(1);
 
-console.log(`Benchmarking function \`${functionName}\`.`);
+const argsButLast = args.slice(0, -1);
+const [lastArg] = args.slice(-1);
+
+const argsString = args.length > 0 ?
+  (" with args " + (args.length > 1
+    ? (argsButLast.map(blue).join(", ") + " and " + blue(lastArg))
+    : blue(lastArg)))
+  : "";
+
+console.log(`Benchmarking function ${blue(functionName)}${argsString}.`);
 
 // resolve relative path (remove ./ from the string)
 const versionDirs = versions.map((version) => path.relative(".", version));
@@ -204,7 +224,7 @@ for (const version of versionDirs) {
     for (const [pkg, ver] of Object.entries(elmJson.dependencies[depType])) {
       if (
         !combinedDependencies[depType][pkg] ||
-        semver.gt(ver, combinedDependencies[depType][pkg])
+        semverGt(ver, combinedDependencies[depType][pkg])
       ) {
         combinedDependencies[depType][pkg] = ver;
       }
@@ -230,7 +250,7 @@ for (const depType of ["direct", "indirect"]) {
           return [pkg, directVer];
         } else if (existingVer) {
           // If it exists in the same dependency type, use the higher semver
-          return [pkg, semver.gt(ver, existingVer) ? ver : existingVer];
+          return [pkg, semverGt(ver, existingVer) ? ver : existingVer];
         } else {
           // If it doesn't exist in tempElmJson, add it
           return [pkg, ver];
@@ -343,7 +363,7 @@ results.results.forEach((result, index) => {
   const versionC = isFastest ? green(version) : version;
   const comparisonC = isFastest ? green(comparison) : comparison;
 
-  console.log(`  ${versionC}${padding}   ${bar.padEnd(maxBarLength)}   ${nsRounded} ns   ${comparisonC}`);
+  console.log(`  ${versionC}${padding}   ${bar.padEnd(maxBarLength)}   ${nsRounded} ns/run   ${comparisonC}`);
 });
 
 if (results.warning) {
