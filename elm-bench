@@ -1,8 +1,12 @@
-#!/usr/bin/env node
+#!/bin/sh
+':' // ; cat "$0" | node --input-type=module - "$@" ; exit $?
+
 /*
 elm-bench
 ---------
 A small CLI utility for easy benchmarking of Elm code.
+
+Dependencies: elm, node
 
 Example usage:
   elm-bench -v ./old -v ./new remove 42 "List.range 0 1000"
@@ -34,7 +38,6 @@ import path from "node:path";
 import os from "node:os";
 import * as childProcess from "node:child_process";
 
-// Custom semver comparison function
 const semverGt = (v1, v2) => {
   const parse = v => v.split('.').map(Number);
   const [major1, minor1, patch1] = parse(v1);
@@ -46,11 +49,32 @@ const semverGt = (v1, v2) => {
 };
 
 const capitalize = (str) => str.charAt(0).toUpperCase() + str.slice(1);
+const capitalizePath = (str) => str.split(path.sep).map(capitalize).join(path.sep);
+const elmize = (str) => str.split(path.sep).map(capitalize).join(".");
 
 const green = (str) => `\x1b[32m${str}\x1b[0m`;
 const blue = (str) => `\x1b[34m${str}\x1b[0m`;
+const red = (str) => `\x1b[31m${str}\x1b[0m`;
 
-// 1. Parse arguments
+function usage() {
+  console.error(`
+Usage:
+  elm-bench [options] <function-name> [<arg>...]
+
+Options:
+  -v, --version <version-dir>  Specify a version directory (can be used multiple times)
+
+Arguments:
+  <function-name>              Name of the function to benchmark
+  <arg>                        Arguments to pass to the function (optional)
+
+Example:
+  elm-bench -v ./old ./new remove 42 "List.range 0 1000"
+`);
+
+}
+
+// Parse arguments
 
 const { values, positionals } = parseArgs({
   options: {
@@ -64,12 +88,14 @@ const { values, positionals } = parseArgs({
 });
 
 if (!("version" in values)) {
-  console.error("No versions to benchmark");
+  console.error(red("No versions, please specify at least one version directory"));
+  usage();
   process.exit(1);
 }
 
 if (positionals.length < 1) {
-  console.error("No function to benchmark");
+  console.error(red("No function name"));
+  usage();
   process.exit(1);
 }
 
@@ -88,62 +114,125 @@ const argsString = args.length > 0 ?
 
 console.log(`Benchmarking function ${blue(functionName)}${argsString}.`);
 
-// resolve relative path (remove ./ from the string)
 const versionDirs = versions.map((version) => path.relative(".", version));
 
-// 2. Prepare the JS+Elm program
+// Prepare the JS+Elm program
 
-// 2.1 Copy `template/` to a temporary directory
-const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "elm-bench-"));
-const templateDir = path.join(import.meta.dirname, "template");
-await fs.cp(templateDir, tempDir, { recursive: true });
-
-const benchmarksElmPath = path.join(tempDir, "src", "Benchmarks.elm");
-let benchmarksElmContent = await fs.readFile(benchmarksElmPath, "utf-8");
-
-// 2.2 Replace `{{FUNCTION_NAME}}` with the function name
-benchmarksElmContent = benchmarksElmContent.replace(
-  "{{FUNCTION_NAME}}",
-  functionName
-);
-
-// 2.3 Replace `{{VERSIONS}}` with the versions
 const versionsCode = `[ ${versionDirs
   .map(
     (version) =>
-      `( "${version}", Version.${capitalize(version)}.${functionName} )`
+      `( "${version}", Version.${elmize(version)}.${functionName} )`
   )
   .join("\n        , ")}
         ]`;
 
-benchmarksElmContent = benchmarksElmContent.replace(
-  "{{VERSIONS}}",
-  versionsCode
-);
-
-// 2.4 Replace `{{ARGS}}` with the arguments
 const argsCode = args.map((_, i) => `arg${i}`).join(" ");
 
-benchmarksElmContent = benchmarksElmContent.replace("{{ARGS}}", argsCode);
-
-// 2.5 Replace `{{IMPORTS}}` with the imports
 const importsCode = versionDirs
-  .map((version) => `import Version.${capitalize(version)}`)
+  .map((version) => `import Version.${elmize(version)}`)
   .join("\n");
 
-benchmarksElmContent = benchmarksElmContent.replace("{{IMPORTS}}", importsCode);
-
-// 2.6 Replace `{{ARG_DEFS}}` with the argument definitions
 const argDefsCode = args.map((arg, i) => `arg${i} =\n    ${arg}`).join("\n\n\n");
 
-benchmarksElmContent = benchmarksElmContent.replace(
-  "{{ARG_DEFS}}",
-  argDefsCode
-);
+const templates = {
+  "main.js": `
+const {Elm} = require('./elm.js');
 
-await fs.writeFile(benchmarksElmPath, benchmarksElmContent, "utf-8");
+const app = Elm.Benchmarks.init();
 
-// 2.7 Copy the versions' code into src/Versions, change the module declaration and rename the Main module
+app.ports.sendOutput.subscribe((output) => {
+    console.log(JSON.stringify(output, null, 2));
+});
+`,
+  "elm.json": `
+{
+    "type": "application",
+    "source-directories": [
+        "src"
+    ],
+    "elm-version": "0.19.1",
+    "dependencies": {
+        "direct": {
+            "Janiczek/elm-benchmark-cli-runner": "1.0.0",
+            "elm/core": "1.0.5",
+            "elm-explorations/benchmark": "1.0.2",
+            "lue-bird/elm-alternative-benchmark-runner": "1.0.0"
+        },
+        "indirect": {
+            "BrianHicks/elm-trend": "2.1.3",
+            "avh4/elm-color": "1.0.0",
+            "elm/browser": "1.0.2",
+            "elm/html": "1.0.0",
+            "elm/json": "1.1.3",
+            "elm/regex": "1.0.0",
+            "elm/time": "1.0.0",
+            "elm/url": "1.0.0",
+            "elm/virtual-dom": "1.0.3",
+            "mdgriffith/elm-ui": "1.1.8",
+            "mdgriffith/style-elements": "5.0.2",
+            "miniBill/elm-ui-with-context": "1.1.0",
+            "robinheghan/murmur3": "1.0.0"
+        }
+    },
+    "test-dependencies": {
+        "direct": {},
+        "indirect": {}
+    }
+}
+`,
+  "src/Benchmarks.elm": `
+port module Benchmarks exposing (main)
+
+import Benchmark exposing (Benchmark)
+import Benchmark.Alternative
+import Benchmark.Runner.Cli
+{{IMPORTS}}
+
+
+port sendOutput : Benchmark.Runner.Cli.Output -> Cmd msg
+
+
+main =
+    Benchmark.Runner.Cli.program
+        { suite = suite
+        , sendOutput = sendOutput
+        }
+
+
+suite : Benchmark
+suite =
+    Benchmark.Alternative.rank
+        "{{FUNCTION_NAME}}"
+        (\\f -> f {{ARGS}})
+        {{VERSIONS}}
+
+
+{{ARG_DEFS}}
+`
+    .replace("{{FUNCTION_NAME}}", functionName)
+    .replace("{{VERSIONS}}", versionsCode)
+    .replace("{{ARGS}}", argsCode)
+    .replace("{{IMPORTS}}", importsCode)
+    .replace("{{ARG_DEFS}}", argDefsCode)
+
+}
+
+// Make a temporary directory with our template files
+const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "elm-bench-"));
+
+// Write out the templates to the temporary directory
+for (const [fileName, content] of Object.entries(templates)) {
+  const filePath = path.join(tempDir, fileName);
+  const dirPath = path.dirname(filePath);
+
+  // Ensure the directory exists
+  await fs.mkdir(dirPath, { recursive: true });
+
+  // Write the file
+  await fs.writeFile(filePath, content, "utf-8");
+}
+
+// Copy the versions' code into src/Versions, change the module declaration and rename the Main module
 /*
 Before:
 
@@ -176,15 +265,15 @@ async function findElmFiles(dir) {
 }
 
 for (const version of versionDirs) {
-  const versionCapitalized = capitalize(version);
+  // version == example/old
+  const versionCapitalized = capitalizePath(version); // Example/Old
+  const versionModule = elmize(version); // Example.Old
   const srcDir = path.join(version, "src");
   const versionDir = path.join(tempDir, "src", "Version");
   const destDir = path.join(tempDir, "src", "Version", versionCapitalized);
 
-  // Create destination directory
   await fs.mkdir(destDir, { recursive: true });
 
-  // Copy and modify all Elm files
   const elmFiles = await findElmFiles(srcDir);
 
   for (const file of elmFiles) {
@@ -197,7 +286,7 @@ for (const version of versionDirs) {
     // Modify module declaration
     content = content.replace(
       /^module\s+(\w+)(?:\s+exposing\s*\(([\s\S]*?)\))?/m,
-      `module Version.${versionCapitalized}${file.endsWith("Main.elm") ? "" : `.${path.basename(file, ".elm")}`
+      `module Version.${versionModule}${file.endsWith("Main.elm") ? "" : `.${path.basename(file, ".elm")}`
       } exposing ($2)`
     );
 
@@ -205,11 +294,8 @@ for (const version of versionDirs) {
     content = content.replace(
       /^import\s+(\w+(?:\.\w+)*)/gm,
       (match, module) => {
-        if (
-          module !== "Main" &&
-          elmFiles.some((file) => file === `${module}.elm`)
-        ) {
-          return `import Version.${versionCapitalized}.${module}`;
+        if (elmFiles.some((file) => file === `${module}.elm`)) {
+          return `import Version.${versionModule}.${module}`;
         }
         return match;
       }
@@ -277,9 +363,7 @@ await fs.writeFile(
   "utf-8"
 );
 
-// 3. Run the program and collect the results
-
-// 3.1 Run elm make on the generated Elm code
+// Run elm make on the generated Elm code
 const exec = promisify(childProcess.exec);
 
 const elmMakeCommand = `elm make src/Benchmarks.elm --optimize --output elm.js`;
@@ -296,9 +380,7 @@ try {
   throw error;
 }
 
-// 3.2 Run the generated program
-
-// Run the generated program
+// Run the generated program and get the results
 async function runGeneratedProgram() {
   const nodeCommand = 'node main.js';
   try {
@@ -318,21 +400,24 @@ async function runGeneratedProgram() {
 
 const results = await runGeneratedProgram();
 
-// 4. Print the results
+// Print the results
 
 /* Example of `results`:
 
   {
     "results": [
-      { "name": [ "remove", "listRemoveOld" ], "nsPerRun": 309.43958596194926 },
-      { "name": [ "remove", "listRemoveNew" ], "nsPerRun": 244.48914830045732 }
+      { "name": [ "remove", "listRemoveOld" ], "nsPerRun": 316.43958596194926 },
+      { "name": [ "remove", "listRemoveNew" ], "nsPerRun": 254.48914830045732 }
     ],
     "warning": null
   }
 
-*/
+Output:
 
-// 4. Print the results
+  old   ████████████████████   316 ns/run   baseline
+  new   ████████████████       254 ns/run   20% faster
+
+*/
 
 const baseline = results.results[0].nsPerRun;
 const maxNameLength = Math.max(...versions.map((v) => v.length));
@@ -375,6 +460,6 @@ if (results.warning) {
   console.warn("Warning:", results.warning);
 }
 
-// 5. Remove the temporary files
+// Remove the temporary files
 
 await fs.rm(tempDir, { recursive: true });

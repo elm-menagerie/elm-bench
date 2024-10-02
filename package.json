@@ -1,8 +1,0 @@
-{
-    "name": "elm-bench",
-    "version": "1.0.0",
-    "type": "module",
-    "dependencies": {
-        "elm": "0.19.1-6"
-    }
-}
