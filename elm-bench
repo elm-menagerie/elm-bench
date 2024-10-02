@@ -56,6 +56,27 @@ const green = (str) => `\x1b[32m${str}\x1b[0m`;
 const blue = (str) => `\x1b[34m${str}\x1b[0m`;
 const red = (str) => `\x1b[31m${str}\x1b[0m`;
 
+function startSpinner() {
+  const characters = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  const cursorEsc = {
+    hide: '\u001B[?25l',
+    show: '\u001B[?25h',
+  };
+  process.stdout.write(cursorEsc.hide);
+
+  let i = 0;
+  const timer = setInterval(function () {
+    process.stdout.write("\r" + blue(characters[i++]));
+    i = i >= characters.length ? 0 : i;
+  }, 100);
+
+  return () => {
+    clearInterval(timer);
+    process.stdout.write("\r");
+    process.stdout.write(cursorEsc.show);
+  };
+}
+
 function usage() {
   console.error(`
 Usage:
@@ -113,6 +134,7 @@ const argsString = args.length > 0 ?
   : "";
 
 console.log(`Benchmarking function ${blue(functionName)}${argsString}.`);
+const stopSpinner = startSpinner();
 
 const versionDirs = versions.map((version) => path.relative(".", version));
 
@@ -399,6 +421,7 @@ async function runGeneratedProgram() {
 }
 
 const results = await runGeneratedProgram();
+stopSpinner();
 
 // Print the results
 
