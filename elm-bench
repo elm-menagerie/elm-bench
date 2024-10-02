@@ -136,6 +136,8 @@ const argsString = args.length > 0 ?
 console.log(`Benchmarking function ${blue(functionName)}${argsString}.`);
 const stopSpinner = startSpinner();
 
+process.on('exit', stopSpinner);
+
 const versionDirs = versions.map((version) => path.relative(".", version));
 
 // Prepare the JS+Elm program
