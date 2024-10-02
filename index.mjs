@@ -4,7 +4,7 @@ elm-bench
 A small CLI utility for easy benchmarking of Elm code.
 
 Example usage:
-  elm-bench -v ./listRemoveOld -v ./listRemoveNew remove 99 "List.range 0 1000"
+  elm-bench -v ./old -v ./new remove 42 "List.range 0 1000"
 
 Expects listRemoveOld and listRemoveNew to be directories containingElm
 applications whose `src/Main.elm` exposes the `remove` function.
@@ -12,7 +12,7 @@ Each `remove` function should accept an Int and a List Int.
 elm-bench will plug each `remove` function into an elm-benchmark program and
 give you the results on the CLI:
 
-$ elm-bench -v ./listRemoveOld -v ./listRemoveNew remove 99 "List.range 0 1000"
+$ elm-bench -v ./old -v ./new remove 42 "List.range 0 1000"
 Benchmarking function remove with args 42 and List.range 0 1000.
   old   ████████████████████   316 ns/run   baseline
   new   ████████████████       254 ns/run   20% faster
@@ -23,6 +23,8 @@ TODO: JSON report mode
 TODO: use us, ms, s when it gets too big
 TODO: allow specifying the path to the Elm compiler
 TODO: usage screen in -h, --help or on arg parse error
+TODO: be robust against arbitrary paths
+TODO: test against benchmarked code that has a lot of tricky imports / package deps
 */
 
 import { parseArgs, promisify } from "node:util";
