@@ -13,25 +13,28 @@ elm-bench will plug each `remove` function into an elm-benchmark program and
 give you the results on the CLI:
 
 $ elm-bench -v ./listRemoveOld -v ./listRemoveNew remove 99 "List.range 0 1000"
-  ./listRemoveOld ████████   34 ns   baseline
-  ./listRemoveNew ██          9 ns   73% faster
+Benchmarking function `remove`.
+  ./listRemoveOld   ████████████████████   351 ns   baseline
+  ./listRemoveNew   ██████████████         246 ns   30% faster
 
 TODO: eject into elm-benchmark code (receive an arg saying where to put it, and use that instead of the temp dir, and don't delete that afterwards)
+TODO: check the Debug.toString representation of the versions is the same, and show a warning if it's not
+TODO: JSON report mode
 */
 
-import { parseArgs } from "node:util";
+import { parseArgs, promisify } from "node:util";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import semver from "semver";
+import * as childProcess from "node:child_process";
 
-const debug = process.env.DEBUG === "elm-bench";
-const log = debug ? console.log : () => {};
+import semver from "semver";
 
 const capitalize = (str) => str.charAt(0).toUpperCase() + str.slice(1);
 
+const green = (str) => `\x1b[32m${str}\x1b[0m`;
+
 // 1. Parse arguments
-log("1");
 
 const { values, positionals } = parseArgs({
   options: {
@@ -58,11 +61,14 @@ const versions = [...values.version];
 const functionName = positionals[0];
 const args = positionals.slice(1);
 
+console.log(`Benchmarking function \`${functionName}\`.`);
+
+// resolve relative path (remove ./ from the string)
+const versionDirs = versions.map((version) => path.relative(".", version));
+
 // 2. Prepare the JS+Elm program
-log("2");
 
 // 2.1 Copy `template/` to a temporary directory
-log("2.1");
 const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "elm-bench-"));
 const templateDir = path.join(import.meta.dirname, "template");
 await fs.cp(templateDir, tempDir, { recursive: true });
@@ -71,20 +77,19 @@ const benchmarksElmPath = path.join(tempDir, "src", "Benchmarks.elm");
 let benchmarksElmContent = await fs.readFile(benchmarksElmPath, "utf-8");
 
 // 2.2 Replace `{{FUNCTION_NAME}}` with the function name
-log("2.2");
 benchmarksElmContent = benchmarksElmContent.replace(
   "{{FUNCTION_NAME}}",
   functionName
 );
 
 // 2.3 Replace `{{VERSIONS}}` with the versions
-log("2.3");
-const versionsCode = `[ ${versions
+const versionsCode = `[ ${versionDirs
   .map(
     (version) =>
       `( "${version}", Version.${capitalize(version)}.${functionName} )`
   )
-  .join(", ")} ]`;
+  .join("\n        , ")}
+        ]`;
 
 benchmarksElmContent = benchmarksElmContent.replace(
   "{{VERSIONS}}",
@@ -92,24 +97,19 @@ benchmarksElmContent = benchmarksElmContent.replace(
 );
 
 // 2.4 Replace `{{ARGS}}` with the arguments
-log("2.4");
 const argsCode = args.map((_, i) => `arg${i}`).join(" ");
 
 benchmarksElmContent = benchmarksElmContent.replace("{{ARGS}}", argsCode);
 
 // 2.5 Replace `{{IMPORTS}}` with the imports
-log("2.5");
-const importsCode = versions
-  // TODO START HERE! remove the ./ from the version paths
-  // DEBUG=elm-bench node index.mjs -v ./listRemoveOld -v ./listRemoveNew remove 42 "List.range 0 1000"
+const importsCode = versionDirs
   .map((version) => `import Version.${capitalize(version)}`)
   .join("\n");
 
 benchmarksElmContent = benchmarksElmContent.replace("{{IMPORTS}}", importsCode);
 
 // 2.6 Replace `{{ARG_DEFS}}` with the argument definitions
-log("2.6");
-const argDefsCode = args.map((arg, i) => `arg${i} = ${arg}`).join("\n");
+const argDefsCode = args.map((arg, i) => `arg${i} =\n    ${arg}`).join("\n\n\n");
 
 benchmarksElmContent = benchmarksElmContent.replace(
   "{{ARG_DEFS}}",
@@ -119,7 +119,6 @@ benchmarksElmContent = benchmarksElmContent.replace(
 await fs.writeFile(benchmarksElmPath, benchmarksElmContent, "utf-8");
 
 // 2.7 Copy the versions' code into src/Versions, change the module declaration and rename the Main module
-log("2.7");
 /*
 Before:
 
@@ -133,10 +132,10 @@ Before:
 
 After:
 
-- ${tempDir}/src/Versions/ListRemoveOld/WhateverElse.elm (with changed module name and imports)
-- ${tempDir}/src/Versions/ListRemoveOld.elm              (with changed module name and imports)
-- ${tempDir}/src/Versions/ListRemoveNew/WhateverElse.elm (with changed module name and imports)
-- ${tempDir}/src/Versions/ListRemoveNew.elm              (with changed module name and imports)
+- ${tempDir}/src/Version/ListRemoveOld/WhateverElse.elm (with changed module name and imports)
+- ${tempDir}/src/Version/ListRemoveOld.elm              (with changed module name and imports)
+- ${tempDir}/src/Version/ListRemoveNew/WhateverElse.elm (with changed module name and imports)
+- ${tempDir}/src/Version/ListRemoveNew.elm              (with changed module name and imports)
 - ${tempDir}/elm.json (with combined dependencies of all versions)
 */
 
@@ -151,40 +150,33 @@ async function findElmFiles(dir) {
   return files.flat().filter((file) => file.endsWith(".elm"));
 }
 
-for (const version of versions) {
-  log("2.7 version", version);
+for (const version of versionDirs) {
   const versionCapitalized = capitalize(version);
   const srcDir = path.join(version, "src");
-  const versionsDir = path.join(tempDir, "src", "Versions");
-  const destDir = path.join(tempDir, "src", "Versions", versionCapitalized);
+  const versionDir = path.join(tempDir, "src", "Version");
+  const destDir = path.join(tempDir, "src", "Version", versionCapitalized);
 
   // Create destination directory
-  log("2.7 dest", destDir);
   await fs.mkdir(destDir, { recursive: true });
 
   // Copy and modify all Elm files
   const elmFiles = await findElmFiles(srcDir);
 
-  log("2.7 elm", elmFiles);
-
   for (const file of elmFiles) {
     const destPath = file.endsWith("Main.elm")
-      ? path.join(versionsDir, `${versionCapitalized}.elm`)
+      ? path.join(versionDir, `${versionCapitalized}.elm`)
       : file;
 
     let content = await fs.readFile(file, "utf-8");
 
     // Modify module declaration
-    log("2.7 modify module");
     content = content.replace(
       /^module\s+(\w+)(?:\s+exposing\s*\(([\s\S]*?)\))?/m,
-      `module Versions.${versionCapitalized}${
-        file.endsWith("Main.elm") ? "" : `.${path.basename(file, ".elm")}`
+      `module Version.${versionCapitalized}${file.endsWith("Main.elm") ? "" : `.${path.basename(file, ".elm")}`
       } exposing ($2)`
     );
 
     // Modify imports
-    log("2.7 modify imports");
     content = content.replace(
       /^import\s+(\w+(?:\.\w+)*)/gm,
       (match, module) => {
@@ -192,24 +184,21 @@ for (const version of versions) {
           module !== "Main" &&
           elmFiles.some((file) => file === `${module}.elm`)
         ) {
-          return `import Versions.${versionCapitalized}.${module}`;
+          return `import Version.${versionCapitalized}.${module}`;
         }
         return match;
       }
     );
 
-    log("2.7 write");
     await fs.writeFile(destPath, content, "utf-8");
   }
 }
 
 // Combine elm.json dependencies
-log("2.7 combine elm json");
 const combinedDependencies = { direct: {}, indirect: {} };
-for (const version of versions) {
+for (const version of versionDirs) {
   const elmJsonPath = path.join(version, "elm.json");
   const elmJson = JSON.parse(await fs.readFile(elmJsonPath, "utf-8"));
-  log("2.7 single", elmJson);
 
   for (const depType of ["direct", "indirect"]) {
     for (const [pkg, ver] of Object.entries(elmJson.dependencies[depType])) {
@@ -222,12 +211,11 @@ for (const version of versions) {
     }
   }
 }
-log("2.7 combined", combinedDependencies);
 
 // Update the temporary project's elm.json
 const tempElmJsonPath = path.join(tempDir, "elm.json");
 const tempElmJson = JSON.parse(await fs.readFile(tempElmJsonPath, "utf-8"));
-log("2.7 temp", tempElmJson);
+
 // Merge dependencies, preferring direct over indirect and higher semver
 for (const depType of ["direct", "indirect"]) {
   tempElmJson.dependencies[depType] = {
@@ -263,10 +251,105 @@ await fs.writeFile(
   JSON.stringify(tempElmJson, null, 4),
   "utf-8"
 );
-log("2.7 written", tempElmJson);
 
 // 3. Run the program and collect the results
 
+// 3.1 Run elm make on the generated Elm code
+const exec = promisify(childProcess.exec);
+
+const elmMakeCommand = `elm make src/Benchmarks.elm --optimize --output elm.js`;
+try {
+  const { stderr } = await exec(elmMakeCommand, { cwd: tempDir, encoding: "utf-8" });
+  if (stderr && stderr.length > 0) {
+    if (stderr) {
+      console.error("Elm make errors:");
+      console.error(stderr);
+    }
+  }
+} catch (error) {
+  console.error("Error running elm make:", error);
+  throw error;
+}
+
+// 3.2 Run the generated program
+
+// Run the generated program
+async function runGeneratedProgram() {
+  const nodeCommand = 'node main.js';
+  try {
+    const { stdout, stderr } = await exec(nodeCommand, { cwd: tempDir, encoding: "utf-8" });
+    if (stderr && stderr.length > 0) {
+      console.error("Node execution errors:");
+      console.error(stderr);
+    }
+
+    const results = JSON.parse(stdout);
+    return results;
+  } catch (error) {
+    console.error("Error running the generated program:", error);
+    throw error;
+  }
+}
+
+const results = await runGeneratedProgram();
+
 // 4. Print the results
 
+/* Example of `results`:
+
+  {
+    "results": [
+      { "name": [ "remove", "listRemoveOld" ], "nsPerRun": 309.43958596194926 },
+      { "name": [ "remove", "listRemoveNew" ], "nsPerRun": 244.48914830045732 }
+    ],
+    "warning": null
+  }
+
+*/
+
+// 4. Print the results
+
+const baseline = results.results[0].nsPerRun;
+const maxNameLength = Math.max(...versions.map((v) => v.length));
+const maxBarLength = 20;
+
+const fastestIndex = results.results.reduce((minIndex, result, currentIndex, array) => {
+  return result.nsPerRun < array[minIndex].nsPerRun ? currentIndex : minIndex;
+}, 0);
+
+results.results.forEach((result, index) => {
+  const { nsPerRun } = result;
+  const version = versions[index];
+  const barLength = Math.round((nsPerRun / baseline) * maxBarLength);
+  const bar = '█'.repeat(barLength);
+  const nsRounded = Math.round(nsPerRun);
+  const padding = ' '.repeat(maxNameLength - version.length);
+  const isFastest = index === fastestIndex;
+
+  let comparison = '';
+  if (index === 0) {
+    comparison = 'baseline';
+  } else {
+    const percentDiff = Math.round((nsPerRun / baseline - 1) * 100);
+    if (percentDiff > 0) {
+      comparison = `${percentDiff}% slower`;
+    } else if (percentDiff < 0) {
+      comparison = `${Math.abs(percentDiff)}% faster`;
+    } else {
+      comparison = 'same speed';
+    }
+  }
+
+  const versionC = isFastest ? green(version) : version;
+  const comparisonC = isFastest ? green(comparison) : comparison;
+
+  console.log(`  ${versionC}${padding}   ${bar.padEnd(maxBarLength)}   ${nsRounded} ns   ${comparisonC}`);
+});
+
+if (results.warning) {
+  console.warn("Warning:", results.warning);
+}
+
 // 5. Remove the temporary files
+
+await fs.rm(tempDir, { recursive: true });
