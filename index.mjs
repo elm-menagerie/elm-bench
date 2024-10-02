@@ -21,6 +21,8 @@ TODO: eject into elm-benchmark code (receive an arg saying where to put it, and 
 TODO: check the Debug.toString representation of the versions is the same, and show a warning if it's not
 TODO: JSON report mode
 TODO: use us, ms, s when it gets too big
+TODO: allow specifying the path to the Elm compiler
+TODO: usage screen in -h, --help or on arg parse error
 */
 
 import { parseArgs, promisify } from "node:util";
