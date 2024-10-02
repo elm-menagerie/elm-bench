@@ -22,6 +22,7 @@ Benchmarking function remove with args 42 and List.range 0 1000.
   old   ████████████████████   316 ns/run   baseline
   new   ████████████████       254 ns/run   20% faster
 
+TODO: Alternative way to run these: elm-bench --path src/Main.elm -f removeOld -f removeNew 42 "List.range 0 1000"
 TODO: eject into elm-benchmark code (receive an arg saying where to put it, and use that instead of the temp dir, and don't delete that afterwards)
 TODO: check the Debug.toString representation of the versions is the same, and show a warning if it's not
 TODO: JSON report mode
