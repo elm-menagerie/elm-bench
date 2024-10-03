@@ -11,11 +11,10 @@ Dependencies: elm, node
 Example usage:
   elm-bench -v ./old -v ./new remove 42 "List.range 0 1000"
 
-Expects listRemoveOld and listRemoveNew to be directories containingElm
-applications whose `src/Main.elm` exposes the `remove` function.
-Each `remove` function should accept an Int and a List Int.
-elm-bench will plug each `remove` function into an elm-benchmark program and
-give you the results on the CLI:
+Expects old and new to be directories containing Elm applications whose
+`src/Main.elm` exposes the `remove` function. Each `remove` function should
+accept an Int and a List Int. elm-bench will plug each `remove` function into
+an elm-benchmark program and give you the results on the CLI:
 
 $ elm-bench -v ./old -v ./new remove 42 "List.range 0 1000"
 Benchmarking function remove with args 42 and List.range 0 1000.
@@ -51,11 +50,14 @@ const semverGt = (v1, v2) => {
 
 const capitalize = (str) => str.charAt(0).toUpperCase() + str.slice(1);
 const capitalizePath = (str) => str.split(path.sep).map(capitalize).join(path.sep);
-const elmize = (str) => str.split(path.sep).map(capitalize).join(".");
+const pathToElm = (str) => str.split(path.sep).map(capitalize).join(".");
+const elmToPath = (str) => str.split(".").join(path.sep);
 
 const green = (str) => `\x1b[32m${str}\x1b[0m`;
 const blue = (str) => `\x1b[34m${str}\x1b[0m`;
 const red = (str) => `\x1b[31m${str}\x1b[0m`;
+const dim = (str) => `\x1b[2m${str}\x1b[0m`;
+const bold = (str) => `\x1b[1m${str}\x1b[0m`;
 
 function startSpinner() {
   const characters = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -80,18 +82,19 @@ function startSpinner() {
 
 function usage() {
   console.error(`
-Usage:
-  elm-bench [options] <function-name> [<arg>...]
+${dim("Usage:")}
+  ${bold("elm-bench")} [options] <function-name> <arg> [<arg>...]
 
-Options:
+${dim("Options:")}
   -v, --version <version-dir>  Specify a version directory (can be used multiple times)
 
-Arguments:
+${dim("Arguments:")}
   <function-name>              Name of the function to benchmark
-  <arg>                        Arguments to pass to the function (optional)
+  <arg>                        Arguments to pass to the function (1+)
 
-Example:
-  elm-bench -v ./old ./new remove 42 "List.range 0 1000"
+${dim("Example:")}
+  elm-bench ${dim("-v")} ./old ${dim("-v")} ./new remove 42 "List.range 0 1000"
+  elm-bench ${dim("-v")} ./old ${dim("-v")} ./new scenario "()"
 `);
 
 }
@@ -115,14 +118,28 @@ if (!("version" in values)) {
   process.exit(1);
 }
 
+const versions = [...values.version];
+
 if (positionals.length < 1) {
-  console.error(red("No function name"));
+  console.error(red("No function name. Please provide a function that's exposed in the ")
+  + blue("Main.elm")
+  + red(" of all the versions."));
   usage();
   process.exit(1);
 }
 
-const versions = [...values.version];
 const functionName = positionals[0];
+
+if (positionals.length < 2) {
+  console.error(red("No arguments. This will make the benchmark meaningless (the benchmarked function is precomputed and benchmarks will take no time). Please make the function ")
+  + blue(functionName)
+  + red(" take an ")
+  + blue("()")
+  + red(" argument and pass it here."));
+  usage();
+  process.exit(1);
+}
+
 const args = positionals.slice(1);
 
 const argsButLast = args.slice(0, -1);
@@ -146,7 +163,7 @@ const versionDirs = versions.map((version) => path.relative(".", version));
 const versionsCode = `[ ${versionDirs
   .map(
     (version) =>
-      `( "${version}", Version.${elmize(version)}.${functionName} )`
+      `( "${version}", Version.${pathToElm(version)}.${functionName} )`
   )
   .join("\n        , ")}
         ]`;
@@ -154,7 +171,7 @@ const versionsCode = `[ ${versionDirs
 const argsCode = args.map((_, i) => `arg${i}`).join(" ");
 
 const importsCode = versionDirs
-  .map((version) => `import Version.${elmize(version)}`)
+  .map((version) => `import Version.${pathToElm(version)}`)
   .join("\n");
 
 const argDefsCode = args.map((arg, i) => `arg${i} =\n    ${arg}`).join("\n\n\n");
@@ -292,19 +309,21 @@ async function findElmFiles(dir) {
 for (const version of versionDirs) {
   // version == example/old
   const versionCapitalized = capitalizePath(version); // Example/Old
-  const versionModule = elmize(version); // Example.Old
+  const versionModule = pathToElm(version); // Example.Old
   const srcDir = path.join(version, "src");
-  const versionDir = path.join(tempDir, "src", "Version");
-  const destDir = path.join(tempDir, "src", "Version", versionCapitalized);
 
-  await fs.mkdir(destDir, { recursive: true });
+  const outSrcDir = path.join(tempDir, "src");
+  const outVersionDir = path.join(tempDir, "src", "Version");
+  const outDestDir = path.join(tempDir, "src", "Version", versionCapitalized);
+
+  await fs.mkdir(outDestDir, { recursive: true });
 
   const elmFiles = await findElmFiles(srcDir);
 
   for (const file of elmFiles) {
     const destPath = file.endsWith("Main.elm")
-      ? path.join(versionDir, `${versionCapitalized}.elm`)
-      : file;
+      ? path.join(outVersionDir, `${versionCapitalized}.elm`)
+      : path.join(outDestDir, path.relative(srcDir, file));
 
     let content = await fs.readFile(file, "utf-8");
 
@@ -319,13 +338,14 @@ for (const version of versionDirs) {
     content = content.replace(
       /^import\s+(\w+(?:\.\w+)*)/gm,
       (match, module) => {
-        if (elmFiles.some((file) => file === `${module}.elm`)) {
-          return `import Version.${versionModule}.${module}`;
+        if (elmFiles.some((file) => file.includes(`${elmToPath(module)}.elm`))) {
+          return `import Version.${versionModule}.${module} as ${module}`;
         }
         return match;
       }
     );
 
+    await fs.mkdir(path.dirname(destPath), { recursive: true });
     await fs.writeFile(destPath, content, "utf-8");
   }
 }
