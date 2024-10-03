@@ -112,6 +112,14 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
 });
 
+if (!("version" in values) && positionals.length === 0) {
+
+  console.log(`${bold("elm-bench")} - a small CLI utility for easy benchmarking of Elm code.`);
+  usage();
+  process.exit(0);
+}
+
+
 if (!("version" in values)) {
   console.error(red("No versions, please specify at least one version directory"));
   usage();
