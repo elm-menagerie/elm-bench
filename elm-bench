@@ -15,6 +15,7 @@ Dependencies: elm, node
 
 Example usage:
   elm-bench -v ./old -v ./new remove 42 "List.range 0 1000"
+  elm-bench -f Main.removeOld -f Main.removeNew 42 "List.range 0 1000"
 
 Expects old and new to be directories containing Elm applications whose
 `src/Main.elm` exposes the `remove` function. Each `remove` function should
@@ -26,15 +27,21 @@ Benchmarking function remove with args 42 and List.range 0 1000.
   old   ████████████████████   316 ns/run   baseline
   new   ████████████████       254 ns/run   20% faster
 
-TODO: Alternative way to run these: elm-bench --path src/Main.elm -f removeOld -f removeNew 42 "List.range 0 1000"
-TODO: eject into elm-benchmark code (receive an arg saying where to put it, and use that instead of the temp dir, and don't delete that afterwards)
-TODO: check the Debug.toString representation of the versions is the same, and show a warning if it's not
+$ elm-bench -f Main.removeOld -f Main.removeNew 42 "List.range 0 1000"
+Benchmarking functions Main.removeOld an Main.removeNew with args 42 and List.range 0 1000.
+  Main.removeOld   ████████████████████   316 ns/run   baseline
+  Main.removeNew   ████████████████       254 ns/run   20% faster
+
+Priority:
 TODO: JSON report mode
+TODO: Compare across Git revisions
+
+TODO: specify extra imports for the -f mode?
+TODO: check the Debug.toString representation of the versions is the same, and show a warning if it's not
 TODO: use us, ms, s when it gets too big
 TODO: allow specifying the path to the Elm compiler
-TODO: usage screen in -h, --help or on arg parse error
 TODO: be robust against arbitrary paths
-TODO: test against benchmarked code that has a lot of tricky imports / package deps
+TODO: stop spinner before each error message
 */
 
 import { parseArgs, promisify } from "node:util";
@@ -42,6 +49,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import * as childProcess from "node:child_process";
+
+const exec = promisify(childProcess.exec);
 
 const semverGt = (v1, v2) => {
   const parse = v => v.split('.').map(Number);
@@ -54,9 +63,6 @@ const semverGt = (v1, v2) => {
 };
 
 const capitalize = (str) => str.charAt(0).toUpperCase() + str.slice(1);
-const capitalizePath = (str) => str.split(path.sep).map(capitalize).join(path.sep);
-const pathToElm = (str) => str.split(path.sep).map(capitalize).join(".");
-const elmToPath = (str) => str.split(".").join(path.sep);
 
 const green = (str) => `\x1b[32m${str}\x1b[0m`;
 const blue = (str) => `\x1b[34m${str}\x1b[0m`;
@@ -66,22 +72,22 @@ const bold = (str) => `\x1b[1m${str}\x1b[0m`;
 
 function startSpinner() {
   const characters = [
-    "⠀","⠁","⠂","⠃","⠄","⠅","⠆","⠇","⠈","⠉","⠊","⠋","⠌","⠍","⠎","⠏",
-    "⠐","⠑","⠒","⠓","⠔","⠕","⠖","⠗","⠘","⠙","⠚","⠛","⠜","⠝","⠞","⠟",
-    "⠠","⠡","⠢","⠣","⠤","⠥","⠦","⠧","⠨","⠩","⠪","⠫","⠬","⠭","⠮","⠯",
-    "⠰","⠱","⠲","⠳","⠴","⠵","⠶","⠷","⠸","⠹","⠺","⠻","⠼","⠽","⠾","⠿",
-    "⡀","⡁","⡂","⡃","⡄","⡅","⡆","⡇","⡈","⡉","⡊","⡋","⡌","⡍","⡎","⡏",
-    "⡐","⡑","⡒","⡓","⡔","⡕","⡖","⡗","⡘","⡙","⡚","⡛","⡜","⡝","⡞","⡟",
-    "⡠","⡡","⡢","⡣","⡤","⡥","⡦","⡧","⡨","⡩","⡪","⡫","⡬","⡭","⡮","⡯",
-    "⡰","⡱","⡲","⡳","⡴","⡵","⡶","⡷","⡸","⡹","⡺","⡻","⡼","⡽","⡾","⡿",
-    "⢀","⢁","⢂","⢃","⢄","⢅","⢆","⢇","⢈","⢉","⢊","⢋","⢌","⢍","⢎","⢏",
-    "⢐","⢑","⢒","⢓","⢔","⢕","⢖","⢗","⢘","⢙","⢚","⢛","⢜","⢝","⢞","⢟",
-    "⢠","⢡","⢢","⢣","⢤","⢥","⢦","⢧","⢨","⢩","⢪","⢫","⢬","⢭","⢮","⢯",
-    "⢰","⢱","⢲","⢳","⢴","⢵","⢶","⢷","⢸","⢹","⢺","⢻","⢼","⢽","⢾","⢿",
-    "⣀","⣁","⣂","⣃","⣄","⣅","⣆","⣇","⣈","⣉","⣊","⣋","⣌","⣍","⣎","⣏",
-    "⣐","⣑","⣒","⣓","⣔","⣕","⣖","⣗","⣘","⣙","⣚","⣛","⣜","⣝","⣞","⣟",
-    "⣠","⣡","⣢","⣣","⣤","⣥","⣦","⣧","⣨","⣩","⣪","⣫","⣬","⣭","⣮","⣯",
-    "⣰","⣱","⣲","⣳","⣴","⣵","⣶","⣷","⣸","⣹","⣺","⣻","⣼","⣽","⣾","⣿",
+    "⠀", "⠁", "⠂", "⠃", "⠄", "⠅", "⠆", "⠇", "⠈", "⠉", "⠊", "⠋", "⠌", "⠍", "⠎", "⠏",
+    "⠐", "⠑", "⠒", "⠓", "⠔", "⠕", "⠖", "⠗", "⠘", "⠙", "⠚", "⠛", "⠜", "⠝", "⠞", "⠟",
+    "⠠", "⠡", "⠢", "⠣", "⠤", "⠥", "⠦", "⠧", "⠨", "⠩", "⠪", "⠫", "⠬", "⠭", "⠮", "⠯",
+    "⠰", "⠱", "⠲", "⠳", "⠴", "⠵", "⠶", "⠷", "⠸", "⠹", "⠺", "⠻", "⠼", "⠽", "⠾", "⠿",
+    "⡀", "⡁", "⡂", "⡃", "⡄", "⡅", "⡆", "⡇", "⡈", "⡉", "⡊", "⡋", "⡌", "⡍", "⡎", "⡏",
+    "⡐", "⡑", "⡒", "⡓", "⡔", "⡕", "⡖", "⡗", "⡘", "⡙", "⡚", "⡛", "⡜", "⡝", "⡞", "⡟",
+    "⡠", "⡡", "⡢", "⡣", "⡤", "⡥", "⡦", "⡧", "⡨", "⡩", "⡪", "⡫", "⡬", "⡭", "⡮", "⡯",
+    "⡰", "⡱", "⡲", "⡳", "⡴", "⡵", "⡶", "⡷", "⡸", "⡹", "⡺", "⡻", "⡼", "⡽", "⡾", "⡿",
+    "⢀", "⢁", "⢂", "⢃", "⢄", "⢅", "⢆", "⢇", "⢈", "⢉", "⢊", "⢋", "⢌", "⢍", "⢎", "⢏",
+    "⢐", "⢑", "⢒", "⢓", "⢔", "⢕", "⢖", "⢗", "⢘", "⢙", "⢚", "⢛", "⢜", "⢝", "⢞", "⢟",
+    "⢠", "⢡", "⢢", "⢣", "⢤", "⢥", "⢦", "⢧", "⢨", "⢩", "⢪", "⢫", "⢬", "⢭", "⢮", "⢯",
+    "⢰", "⢱", "⢲", "⢳", "⢴", "⢵", "⢶", "⢷", "⢸", "⢹", "⢺", "⢻", "⢼", "⢽", "⢾", "⢿",
+    "⣀", "⣁", "⣂", "⣃", "⣄", "⣅", "⣆", "⣇", "⣈", "⣉", "⣊", "⣋", "⣌", "⣍", "⣎", "⣏",
+    "⣐", "⣑", "⣒", "⣓", "⣔", "⣕", "⣖", "⣗", "⣘", "⣙", "⣚", "⣛", "⣜", "⣝", "⣞", "⣟",
+    "⣠", "⣡", "⣢", "⣣", "⣤", "⣥", "⣦", "⣧", "⣨", "⣩", "⣪", "⣫", "⣬", "⣭", "⣮", "⣯",
+    "⣰", "⣱", "⣲", "⣳", "⣴", "⣵", "⣶", "⣷", "⣸", "⣹", "⣺", "⣻", "⣼", "⣽", "⣾", "⣿",
   ];
   const cursorEsc = {
     hide: '\u001B[?25l',
@@ -105,119 +111,42 @@ function startSpinner() {
 function usage() {
   console.error(`
 ${dim("Usage:")}
-  ${bold("elm-bench")} [options] <function-name> <arg> [<arg>...]
 
-${dim("Options:")}
-  -v, --version <version-dir>  Specify a version directory (can be used multiple times)
+${dim("-f/--function mode:")}
+  This mode benchmarks and compares multiple functions in the same Elm project.
+  The project root is taken to be the current working directory.
+  Provide one or more -f flags with qualified function names:
 
-${dim("Arguments:")}
-  <function-name>              Name of the function to benchmark
-  <arg>                        Arguments to pass to the function (1+)
+    ${bold("elm-bench")} ${dim("[")}-f ${blue("QUALIFIED_FUNCTION")}${dim("]+")} ${dim("[")}${blue("ARG")}${dim("]+")}
 
-${dim("Example:")}
-  elm-bench ${dim("-v")} ./old ${dim("-v")} ./new remove 42 "List.range 0 1000"
-  elm-bench ${dim("-v")} ./old ${dim("-v")} ./new scenario "()"
+    elm-bench ${dim("-f")} Foobar.run ${dim("-f")} Foobar.Optimized.run 1024
+    elm-bench ${dim("-f")} Main.removeOld ${dim("-f")} Main.removeNew 42 "List.range 0 1000"
+
+${dim("-v/--version mode:")}
+  This mode benchmarks and compares the same function across multiple Elm projects.
+  The projects are expected to be applications with a Main.elm file that exposes the function.
+
+    ${bold("elm-bench")} ${dim("[")}-v ${blue("VERSION_DIR")}${dim("]+")} ${blue("FUNCTION")} ${dim("[")}${blue("ARG")}${dim("]+")}
+
+    elm-bench ${dim("-v")} ./old ${dim("-v")} ./new remove 42 "List.range 0 1000"
+    elm-bench ${dim("-v")} ./old ${dim("-v")} ./new scenario "()"
+
+${dim("Flags:")}
+  -h, --help      Show this help message
+  -k, --keep      Keep benchmark code in a temporary directory and print its path
 `);
 
 }
 
-// Parse arguments
-
-const { values, positionals } = parseArgs({
-  options: {
-    version: {
-      type: "string",
-      short: "v",
-      multiple: true,
-    },
-  },
-  allowPositionals: true,
-});
-
-if (!("version" in values) && positionals.length === 0) {
-
-  console.log(`${bold("elm-bench")} - a small CLI utility for easy benchmarking of Elm code.`);
-  usage();
-  process.exit(0);
-}
-
-
-if (!("version" in values)) {
-  console.error(red("No versions, please specify at least one version directory"));
-  usage();
-  process.exit(1);
-}
-
-const versions = [...values.version];
-
-if (positionals.length < 1) {
-  console.error(red("No function name. Please provide a function that's exposed in the ")
-  + blue("Main.elm")
-  + red(" of all the versions."));
-  usage();
-  process.exit(1);
-}
-
-const functionName = positionals[0];
-
-if (positionals.length < 2) {
-  console.error(red("No arguments. This will make the benchmark meaningless (the benchmarked function is precomputed and benchmarks will take no time). Please make the function ")
-  + blue(functionName)
-  + red(" take an ")
-  + blue("()")
-  + red(" argument and pass it here."));
-  usage();
-  process.exit(1);
-}
-
-const args = positionals.slice(1);
-
-const argsButLast = args.slice(0, -1);
-const [lastArg] = args.slice(-1);
-
-const argsString = args.length > 0 ?
-  (" with args " + (args.length > 1
-    ? (argsButLast.map(blue).join(", ") + " and " + blue(lastArg))
-    : blue(lastArg)))
-  : "";
-
-console.log(`Benchmarking function ${blue(functionName)}${argsString}.`);
-const stopSpinner = startSpinner();
-
-process.on('exit', stopSpinner);
-
-const versionDirs = versions.map((version) => path.relative(".", version));
-
-// Prepare the JS+Elm program
-
-const versionsCode = `[ ${versionDirs
-  .map(
-    (version) =>
-      `( "${version}", Version.${pathToElm(version)}.${functionName} )`
-  )
-  .join("\n        , ")}
-        ]`;
-
-const argsCode = args.map((_, i) => `arg${i}`).join(" ");
-
-const importsCode = versionDirs
-  .map((version) => `import Version.${pathToElm(version)}`)
-  .join("\n");
-
-const argDefsCode = args.map((arg, i) => `arg${i} =\n    ${arg}`).join("\n\n\n");
-
-const templates = {
-  "main.js": `
-const {Elm} = require('./elm.js');
+const mainJsCode = `const {Elm} = require('./elm.js');
 
 const app = Elm.Benchmarks.init();
 
 app.ports.sendOutput.subscribe((output) => {
     console.log(JSON.stringify(output, null, 2));
-});
-`,
-  "elm.json": `
-{
+});`
+
+const runnerElmJsonCode = `{
     "type": "application",
     "source-directories": [
         "src"
@@ -250,80 +179,403 @@ app.ports.sendOutput.subscribe((output) => {
         "direct": {},
         "indirect": {}
     }
+}`;
+
+// Parse arguments
+
+const { values, positionals } = parseArgs({
+  options: {
+    help: {
+      type: "boolean",
+      short: "h",
+      multiple: false,
+    },
+    keep: {
+      type: "boolean",
+      short: "k",
+      multiple: false,
+    },
+    version: {
+      type: "string",
+      short: "v",
+      multiple: true,
+    },
+    function: {
+      type: "string",
+      short: "f",
+      multiple: true,
+    },
+  },
+  allowPositionals: true,
+});
+
+const keep = "keep" in values;
+
+if ("help" in values || (!("version" in values) && !("function" in values) && positionals.length === 0)) {
+  console.log(`${bold("elm-bench")} - a small CLI utility for easy benchmarking of Elm code.`);
+  usage();
+  process.exit(0);
 }
-`,
-  "src/Benchmarks.elm": `
-port module Benchmarks exposing (main)
 
-import Benchmark exposing (Benchmark)
-import Benchmark.Alternative
-import Benchmark.Runner.Cli
-{{IMPORTS}}
+if ("version" in values && "function" in values) {
+  console.error(red("Can't use --version and --function at the same time, please choose only one."));
+  usage();
+  process.exit(1);
+}
 
+const mode = (() => {
+  if ("version" in values) { return "version"; }
+  else if ("function" in values) { return "function"; }
+  else {
+    console.error(red("No --version or --function, please choose one"));
+    usage();
+    process.exit(1);
+  }
+})();
 
-port sendOutput : Benchmark.Runner.Cli.Output -> Cmd msg
+switch (mode) {
+  case "version":
+    await runVersionMode();
+    process.exit(0);
+  case "function":
+    await runFunctionMode();
+    process.exit(0);
+  default:
+    console.error(red("elm-bench bug: unknown mode. Please report this to martin@janiczek.cz. Thank you!"));
+    process.exit(1);
+}
 
+async function runVersionMode() {
 
-main =
-    Benchmark.Runner.Cli.program
-        { suite = suite
-        , sendOutput = sendOutput
+  const versions = [...values.version];
+  const tempDirs = {};
+
+  if (positionals.length < 1) {
+    console.error(red("No function name in --version mode. Please provide a function that's exposed in the ")
+      + blue("Main.elm")
+      + red(" of all the versions."));
+    usage();
+    process.exit(1);
+  }
+
+  const functionName = positionals[0];
+
+  if (positionals.length < 2) {
+    warnAboutNoArgs({ functionName });
+  }
+
+  const args = positionals.slice(1);
+
+  // Say we're starting
+  const argsButLast = args.slice(0, -1);
+  const [lastArg] = args.slice(-1);
+  const argsString = args.length > 1
+    ? "s " + (argsButLast.map(blue).join(", ") + " and " + blue(lastArg))
+    : " " + blue(lastArg);
+  console.log(`Benchmarking function ${blue(functionName)} with arg${argsString}.`);
+
+  const stopSpinner = startSpinner();
+  process.on('exit', stopSpinner);
+
+  // Make and run a separate benchmark for each version 
+  let results = { results: [] };
+  for (const version of versions) {
+    const versionInvocations = [`( "${version}", Main.${functionName} )`];
+    const imports = ["Main"];
+    const templates = {
+      "main.js": mainJsCode,
+      "elm.json": runnerElmJsonCode,
+      "src/Benchmarks.elm": runnerElmCode({
+        imports,
+        benchmarkName: functionName,
+        args,
+        versionInvocations,
+      })
+    }
+
+    // Make a temporary directory with our template files
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "elm-bench-"));
+    tempDirs[version] = tempDir;
+
+    await writeTemplatesIntoTempDir({ templates, tempDir });
+
+    // Combine the existing elm.json dependencies with the runner ones
+    const projectDirs = [tempDir, version];
+    const combinedDependencies = await combineElmJsonDependencies({ projectDirs });
+
+    // Copy this project to the tempDir
+    await copyElmProject(version, tempDir);
+
+    const tempElmJsonPath = path.join(tempDir, "elm.json");
+    const tempElmJson = JSON.parse(await fs.readFile(tempElmJsonPath, "utf-8"));
+    tempElmJson.dependencies = combinedDependencies;
+    if (!(tempElmJson["source-directories"].includes("src") || tempElmJson["source-directories"].includes("src/"))) {
+      tempElmJson["source-directories"].push("src");
+    }
+
+    await fs.writeFile(
+      tempElmJsonPath,
+      JSON.stringify(tempElmJson, null, 4),
+      "utf-8"
+    );
+
+    // Compile and run everything!
+    await runElmMake({ cwd: tempDir, file: path.join("src", "Benchmarks.elm") });
+    const versionResults = await runGeneratedProgram({ tempDir });
+    results.results = [...results.results, ...versionResults.results];
+
+    if (!keep) {
+      await removeTempFiles({ tempDir });
+    }
+  }
+
+  stopSpinner();
+  printResults({ results, cases: versions });
+  if (keep) {
+    console.log("\nBenchmark code is in the following directories:");
+    for (const [version, tempDir] of Object.entries(tempDirs)) {
+      console.log(`- ${version}: ${blue(tempDir)}`);
+    }
+  }
+}
+
+async function runFunctionMode() {
+  const functions = [...values.function];
+  if (positionals.length < 1) {
+    warnAboutNoArgs({ functionName: null });
+  }
+  const args = positionals;
+
+  // Say we're starting
+  const argsButLast = args.slice(0, -1);
+  const [lastArg] = args.slice(-1);
+  const functionsString = functions.length > 1
+    ? "s " + (functions.map(blue).join(", "))
+    : blue(functions[0]);
+  const argsString = args.length > 1
+    ? "s " + (argsButLast.map(blue).join(", ") + " and " + blue(lastArg))
+    : blue(lastArg);
+  console.log(`Benchmarking function${functionsString} with arg${argsString}.`);
+
+  const stopSpinner = startSpinner();
+  process.on('exit', stopSpinner);
+
+  const projectDir = process.cwd();
+
+  // Prepare the JS+Elm program
+
+  // From: ["Main.removeOld", "Other.Optimized.removeNew"]
+  // To:   ["Main", "Other.Optimized"]
+  const imports = functions.map((func) => func.split(".").slice(0, -1).join("."));
+
+  // From: ["Main.removeOld", "Other.Optimized.removeNew"]
+  // To:   [`( "Main.removeOld", Main.removeOld )`, `( "Other.Optimized.removeNew", Other.Optimized.removeNew )`]
+  const versionInvocations = functions.map((func) =>
+    `( "${func}", ${func} )`
+  );
+
+  const templates = {
+    "main.js": mainJsCode,
+    "elm.json": runnerElmJsonCode,
+    "src/Benchmarks.elm": runnerElmCode({
+      imports,
+      benchmarkName: "benchmark",
+      args,
+      versionInvocations,
+    })
+  }
+
+  // Make a temporary directory with our template files
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "elm-bench-"));
+
+  await writeTemplatesIntoTempDir({ templates, tempDir });
+
+  // Copy the current project's code into the tempDir
+  /*
+  Before:
+
+  - src/Foo.elm
+  - other-src/Bar.elm
+  - elm.json
+
+  After:
+
+  - ${tempDir}/src/Foo.elm
+  - ${tempDir}/other-src/Bar.elm
+  - ${tempDir}/elm.json (with combined dependencies of this project + the runner)
+  */
+
+  // Copy files
+  const currentElmJson = JSON.parse(await fs.readFile("elm.json", "utf-8"));
+  const srcDirs = currentElmJson["source-directories"] ?? ["src"];
+  const elmFiles = await Promise.all(srcDirs.map(findElmFiles))
+    .then(files => files.flat());
+
+  for (const file of elmFiles) {
+    const relativePath = path.relative(projectDir, file);
+    const destPath = path.join(tempDir, relativePath);
+    const destDir = path.dirname(destPath);
+    await fs.mkdir(destDir, { recursive: true });
+    await fs.copyFile(file, destPath);
+  }
+
+  // Make the final elm.json
+  const projectDirs = [tempDir, projectDir];
+  const combinedDependencies = await combineElmJsonDependencies({ projectDirs });
+
+  const tempElmJsonPath = path.join(tempDir, "elm.json");
+  const tempElmJson = JSON.parse(await fs.readFile(tempElmJsonPath, "utf-8"));
+  tempElmJson.dependencies = combinedDependencies;
+  tempElmJson["source-directories"] = srcDirs;
+  await fs.writeFile(
+    tempElmJsonPath,
+    JSON.stringify(tempElmJson, null, 4),
+    "utf-8"
+  );
+
+  // Compile and run everything!
+  await runElmMake({ cwd: tempDir, file: path.join("src", "Benchmarks.elm") });
+  const results = await runGeneratedProgram({ tempDir });
+
+  stopSpinner();
+  printResults({ results, cases: functions });
+
+  if (keep) {
+    console.log("\nBenchmark code is in the following directory:");
+    console.log(blue(tempDir));
+  } else {
+    await removeTempFiles({ tempDir });
+
+  }
+
+}
+
+function printResults({ results, cases }) {
+  /* Example of `results`:
+
+    {
+      "results": [
+        { "name": [ "remove", "listRemoveOld" ], "nsPerRun": 316.43958596194926 },
+        { "name": [ "remove", "listRemoveNew" ], "nsPerRun": 254.48914830045732 }
+      ],
+      "warning": null
+    }
+
+  Output:
+
+    old   ████████████████████   316 ns/run   baseline
+    new   ████████████████       254 ns/run   20% faster
+
+  */
+
+  const baseline = results.results[0].nsPerRun;
+  const maxNameLength = Math.max(...cases.map((v) => v.length));
+  const maxBarLength = 20;
+
+  const fastestIndex = results.results.reduce((minIndex, result, currentIndex, array) => {
+    return result.nsPerRun < array[minIndex].nsPerRun ? currentIndex : minIndex;
+  }, 0);
+
+  process.stdout.write("\r \r\n");
+
+  results.results.forEach((result, index) => {
+    const { nsPerRun } = result;
+    const case_ = cases[index];
+    const barLength = Math.round((nsPerRun / baseline) * maxBarLength);
+    const bar = '█'.repeat(barLength);
+    const nsRounded = Math.round(nsPerRun);
+    const padding = ' '.repeat(maxNameLength - case_.length);
+    const isFastest = index === fastestIndex;
+
+    let comparison = '';
+    if (index === 0) {
+      comparison = 'baseline';
+    } else {
+      const percentDiff = Math.round((nsPerRun / baseline - 1) * 100);
+      if (percentDiff > 0) {
+        comparison = `${percentDiff}% slower`;
+      } else if (percentDiff < 0) {
+        comparison = `${Math.abs(percentDiff)}% faster`;
+      } else {
+        comparison = 'same speed';
+      }
+    }
+
+    const caseC = isFastest ? green(case_) : case_;
+    const comparisonC = isFastest ? green(comparison) : comparison;
+
+    console.log(`  ${caseC}${padding}   ${bar.padEnd(maxBarLength)}   ${nsRounded} ns/run   ${comparisonC}`);
+  });
+
+  if (results.warning) {
+    console.warn("\nWarning:", results.warning);
+  }
+}
+
+async function removeTempFiles({ tempDir }) {
+  await fs.rm(tempDir, { recursive: true });
+}
+
+function warnAboutNoArgs({ functionName }) {
+  console.error(red("No arguments. This will make the benchmark meaningless (the benchmarked function is precomputed and benchmarks will take no time). Please make the function")
+    + (functionName == null ? 's' : ' ' + blue(functionName))
+    + red(" take an ")
+    + blue("()")
+    + red(" argument and pass it here."));
+  usage();
+  process.exit(1);
+}
+
+async function combineElmJsonDependencies({ projectDirs }) {
+  const acc = { direct: {}, indirect: {} };
+
+  for (const project of projectDirs) {
+    const elmJsonPath = path.join(project, "elm.json");
+    const elmJson = JSON.parse(await fs.readFile(elmJsonPath, "utf-8"));
+
+    for (const depType of ["direct", "indirect"]) {
+      for (const [pkg, ver] of Object.entries(elmJson.dependencies[depType])) {
+        if (
+          // not in the acc yet
+          !acc[depType][pkg] ||
+          // higher version than the one in acc
+          semverGt(ver, acc[depType][pkg])
+        ) {
+          // put it into acc
+          acc[depType][pkg] = ver;
         }
+      }
+    }
+  }
 
+  // Cleanup acc: if in both direct and indirect, merge into direct and remove from indirect
+  for (const [pkg, ver] of Object.entries(acc.indirect)) {
+    if (pkg in acc.direct) {
+      if (semverGt(ver, acc.direct[pkg])) {
+        acc.direct[pkg] = ver;
+      }
+      delete acc.indirect[pkg];
+    }
+  }
 
-suite : Benchmark
-suite =
-    Benchmark.Alternative.rank
-        "{{FUNCTION_NAME}}"
-        (\\f -> f {{ARGS}})
-        {{VERSIONS}}
-
-
-{{ARG_DEFS}}
-`
-    .replace("{{FUNCTION_NAME}}", functionName)
-    .replace("{{VERSIONS}}", versionsCode)
-    .replace("{{ARGS}}", argsCode)
-    .replace("{{IMPORTS}}", importsCode)
-    .replace("{{ARG_DEFS}}", argDefsCode)
-
+  return acc;
 }
 
-// Make a temporary directory with our template files
-const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "elm-bench-"));
-
-// Write out the templates to the temporary directory
-for (const [fileName, content] of Object.entries(templates)) {
-  const filePath = path.join(tempDir, fileName);
-  const dirPath = path.dirname(filePath);
-
-  // Ensure the directory exists
-  await fs.mkdir(dirPath, { recursive: true });
-
-  // Write the file
-  await fs.writeFile(filePath, content, "utf-8");
+async function runElmMake({ file, cwd }) {
+  const elmMakeCommand = `elm make ${file} --optimize --output elm.js`;
+  try {
+    const { stderr } = await exec(elmMakeCommand, { cwd, encoding: "utf-8" });
+    if (stderr && stderr.length > 0) {
+      if (stderr) {
+        console.error("Elm make errors:");
+        console.error(stderr);
+      }
+    }
+  } catch (error) {
+    console.error("Error running elm make:", error);
+    throw error;
+  }
 }
-
-// Copy the versions' code into src/Versions, change the module declaration and rename the Main module
-/*
-Before:
-
-- listRemoveOld/src/WhateverElse.elm
-- listRemoveOld/src/Main.elm
-- listRemoveOld/elm.json
-
-- listRemoveNew/src/WhateverElse.elm
-- listRemoveNew/src/Main.elm
-- listRemoveNew/elm.json
-
-After:
-
-- ${tempDir}/src/Version/ListRemoveOld/WhateverElse.elm (with changed module name and imports)
-- ${tempDir}/src/Version/ListRemoveOld.elm              (with changed module name and imports)
-- ${tempDir}/src/Version/ListRemoveNew/WhateverElse.elm (with changed module name and imports)
-- ${tempDir}/src/Version/ListRemoveNew.elm              (with changed module name and imports)
-- ${tempDir}/elm.json (with combined dependencies of all versions)
-*/
 
 async function findElmFiles(dir) {
   const entries = await fs.readdir(dir, { withFileTypes: true });
@@ -336,127 +588,7 @@ async function findElmFiles(dir) {
   return files.flat().filter((file) => file.endsWith(".elm"));
 }
 
-for (const version of versionDirs) {
-  // version == example/old
-  const versionCapitalized = capitalizePath(version); // Example/Old
-  const versionModule = pathToElm(version); // Example.Old
-  const srcDir = path.join(version, "src");
-
-  const outSrcDir = path.join(tempDir, "src");
-  const outVersionDir = path.join(tempDir, "src", "Version");
-  const outDestDir = path.join(tempDir, "src", "Version", versionCapitalized);
-
-  await fs.mkdir(outDestDir, { recursive: true });
-
-  const elmFiles = await findElmFiles(srcDir);
-
-  for (const file of elmFiles) {
-    const destPath = file.endsWith("Main.elm")
-      ? path.join(outVersionDir, `${versionCapitalized}.elm`)
-      : path.join(outDestDir, path.relative(srcDir, file));
-
-    let content = await fs.readFile(file, "utf-8");
-
-    // Modify module declaration
-    content = content.replace(
-      /^module\s+(\w+)(?:\s+exposing\s*\(([\s\S]*?)\))?/m,
-      `module Version.${versionModule}${file.endsWith("Main.elm") ? "" : `.${path.basename(file, ".elm")}`
-      } exposing ($2)`
-    );
-
-    // Modify imports
-    content = content.replace(
-      /^import\s+(\w+(?:\.\w+)*)/gm,
-      (match, module) => {
-        if (elmFiles.some((file) => file.includes(`${elmToPath(module)}.elm`))) {
-          return `import Version.${versionModule}.${module} as ${module}`;
-        }
-        return match;
-      }
-    );
-
-    await fs.mkdir(path.dirname(destPath), { recursive: true });
-    await fs.writeFile(destPath, content, "utf-8");
-  }
-}
-
-// Combine elm.json dependencies
-const combinedDependencies = { direct: {}, indirect: {} };
-for (const version of versionDirs) {
-  const elmJsonPath = path.join(version, "elm.json");
-  const elmJson = JSON.parse(await fs.readFile(elmJsonPath, "utf-8"));
-
-  for (const depType of ["direct", "indirect"]) {
-    for (const [pkg, ver] of Object.entries(elmJson.dependencies[depType])) {
-      if (
-        !combinedDependencies[depType][pkg] ||
-        semverGt(ver, combinedDependencies[depType][pkg])
-      ) {
-        combinedDependencies[depType][pkg] = ver;
-      }
-    }
-  }
-}
-
-// Update the temporary project's elm.json
-const tempElmJsonPath = path.join(tempDir, "elm.json");
-const tempElmJson = JSON.parse(await fs.readFile(tempElmJsonPath, "utf-8"));
-
-// Merge dependencies, preferring direct over indirect and higher semver
-for (const depType of ["direct", "indirect"]) {
-  tempElmJson.dependencies[depType] = {
-    ...tempElmJson.dependencies[depType],
-    ...Object.fromEntries(
-      Object.entries(combinedDependencies[depType]).map(([pkg, ver]) => {
-        const existingVer = tempElmJson.dependencies[depType][pkg];
-        const directVer = tempElmJson.dependencies.direct[pkg];
-
-        if (directVer) {
-          // If it exists in direct dependencies, use that version
-          return [pkg, directVer];
-        } else if (existingVer) {
-          // If it exists in the same dependency type, use the higher semver
-          return [pkg, semverGt(ver, existingVer) ? ver : existingVer];
-        } else {
-          // If it doesn't exist in tempElmJson, add it
-          return [pkg, ver];
-        }
-      })
-    ),
-  };
-}
-
-// Move any remaining indirect dependencies to direct if they exist in both
-for (const [pkg, _] of Object.entries(tempElmJson.dependencies.indirect)) {
-  if (pkg in tempElmJson.dependencies.direct) {
-    delete tempElmJson.dependencies.indirect[pkg];
-  }
-}
-await fs.writeFile(
-  tempElmJsonPath,
-  JSON.stringify(tempElmJson, null, 4),
-  "utf-8"
-);
-
-// Run elm make on the generated Elm code
-const exec = promisify(childProcess.exec);
-
-const elmMakeCommand = `elm make src/Benchmarks.elm --optimize --output elm.js`;
-try {
-  const { stderr } = await exec(elmMakeCommand, { cwd: tempDir, encoding: "utf-8" });
-  if (stderr && stderr.length > 0) {
-    if (stderr) {
-      console.error("Elm make errors:");
-      console.error(stderr);
-    }
-  }
-} catch (error) {
-  console.error("Error running elm make:", error);
-  throw error;
-}
-
-// Run the generated program and get the results
-async function runGeneratedProgram() {
+async function runGeneratedProgram({ tempDir }) {
   const nodeCommand = 'node main.js';
   try {
     const { stdout, stderr } = await exec(nodeCommand, { cwd: tempDir, encoding: "utf-8" });
@@ -473,69 +605,83 @@ async function runGeneratedProgram() {
   }
 }
 
-const results = await runGeneratedProgram();
-stopSpinner();
+function runnerElmCode({ imports, benchmarkName, args, versionInvocations }) {
+  const importsCode = imports.map((imp) => `import ${imp}`).join("\n");
+  const argsCode = args.map((_, i) => `arg${i}`).join(" ");
+  const argDefsCode = args.map((arg, i) => `arg${i} =\n    ${arg}`).join("\n\n\n");
+  const versionsCode = `[ ${versionInvocations.join("\n        , ")}
+        ]`;
 
-// Print the results
+  return `port module Benchmarks exposing (main)
 
-/* Example of `results`:
+import Benchmark exposing (Benchmark)
+import Benchmark.Alternative
+import Benchmark.Runner.Cli
+${importsCode}
 
-  {
-    "results": [
-      { "name": [ "remove", "listRemoveOld" ], "nsPerRun": 316.43958596194926 },
-      { "name": [ "remove", "listRemoveNew" ], "nsPerRun": 254.48914830045732 }
-    ],
-    "warning": null
-  }
 
-Output:
+port sendOutput : Benchmark.Runner.Cli.Output -> Cmd msg
 
-  old   ████████████████████   316 ns/run   baseline
-  new   ████████████████       254 ns/run   20% faster
 
-*/
+main =
+    Benchmark.Runner.Cli.program
+        { suite = suite
+        , sendOutput = sendOutput
+        }
 
-const baseline = results.results[0].nsPerRun;
-const maxNameLength = Math.max(...versions.map((v) => v.length));
-const maxBarLength = 20;
 
-const fastestIndex = results.results.reduce((minIndex, result, currentIndex, array) => {
-  return result.nsPerRun < array[minIndex].nsPerRun ? currentIndex : minIndex;
-}, 0);
+suite : Benchmark
+suite =
+    Benchmark.Alternative.rank
+        "${benchmarkName}"
+        (\\f -> f ${argsCode})
+        ${versionsCode}
 
-results.results.forEach((result, index) => {
-  const { nsPerRun } = result;
-  const version = versions[index];
-  const barLength = Math.round((nsPerRun / baseline) * maxBarLength);
-  const bar = '█'.repeat(barLength);
-  const nsRounded = Math.round(nsPerRun);
-  const padding = ' '.repeat(maxNameLength - version.length);
-  const isFastest = index === fastestIndex;
 
-  let comparison = '';
-  if (index === 0) {
-    comparison = 'baseline';
-  } else {
-    const percentDiff = Math.round((nsPerRun / baseline - 1) * 100);
-    if (percentDiff > 0) {
-      comparison = `${percentDiff}% slower`;
-    } else if (percentDiff < 0) {
-      comparison = `${Math.abs(percentDiff)}% faster`;
-    } else {
-      comparison = 'same speed';
-    }
-  }
-
-  const versionC = isFastest ? green(version) : version;
-  const comparisonC = isFastest ? green(comparison) : comparison;
-
-  console.log(`  ${versionC}${padding}   ${bar.padEnd(maxBarLength)}   ${nsRounded} ns/run   ${comparisonC}`);
-});
-
-if (results.warning) {
-  console.warn("Warning:", results.warning);
+${argDefsCode}`;
 }
 
-// Remove the temporary files
+async function writeTemplatesIntoTempDir({ templates, tempDir }) {
+  // Write out the templates to the temporary directory
+  for (const [fileName, content] of Object.entries(templates)) {
+    const filePath = path.join(tempDir, fileName);
+    const dirPath = path.dirname(filePath);
 
-await fs.rm(tempDir, { recursive: true });
+    // Ensure the directory exists
+    await fs.mkdir(dirPath, { recursive: true });
+
+    // Write the file
+    await fs.writeFile(filePath, content, "utf-8");
+  }
+}
+
+async function copyElmProject(src, dest) {
+  // Read the "source-directories" from the elm.json file
+  const elmJsonPath = path.join(src, 'elm.json');
+  const elmJson = JSON.parse(await fs.readFile(elmJsonPath, 'utf-8'));
+  const sourceDirs = elmJson['source-directories'] ?? ['src'];
+
+  // Copy each source directory
+  for (const sourceDir of sourceDirs) {
+    const sourcePath = path.join(src, sourceDir);
+    const destPath = path.join(dest, sourceDir);
+    await copyRecursiveElm(sourcePath, destPath);
+  }
+}
+
+async function copyRecursiveElm(src, dest) {
+  const stats = await fs.stat(src);
+  if (stats.isDirectory()) {
+    // If it's a directory, create it in the destination and copy its contents
+    await fs.mkdir(dest, { recursive: true });
+    const entries = await fs.readdir(src);
+    for (const entry of entries) {
+      await copyRecursiveElm(path.join(src, entry), path.join(dest, entry));
+    }
+  } else {
+    // If it's a file, copy it directly
+    if (src.endsWith('.elm')) {
+      await fs.copyFile(src, dest);
+    }
+  }
+}

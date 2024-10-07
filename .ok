@@ -1,0 +1,2 @@
+tsc: npx tsc --module nodenext --allowJs --checkJs --noEmit --lib es2017 --lib dom elm-bench.mjs
+watch: npx tsc --module nodenext --allowJs --checkJs --noEmit --lib es2017 --lib dom --watch elm-bench.mjs
