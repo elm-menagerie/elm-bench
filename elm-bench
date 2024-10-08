@@ -18,12 +18,12 @@ TODO: check the Debug.toString representation of the versions is the same, and s
 TODO: use us, ms, s when it gets too big
 TODO: be robust against arbitrary paths
 TODO: stop spinner before each error message
+TODO: -g: support for only checking out/copying subpaths of the repo
 */
 
 import { parseArgs, promisify } from "node:util";
 import fs from "node:fs/promises";
 import path from "node:path";
-import crypto from "node:crypto";
 import os from "node:os";
 import * as childProcess from "node:child_process";
 
@@ -72,8 +72,7 @@ ${dim("Usage:")}
 
 ${dim("-f/--function mode:")}
   This mode benchmarks and compares multiple functions in the same Elm project.
-  The project root is taken to be the current working directory.
-  All functions will take the same set of arguments.
+  Expects the Elm project root to be the current working directory.
   Provide one or more -f flags with qualified function names:
 
     ${bold("elm-bench")} ${dim("[")}-f ${blue("QUALIFIED_FUNCTION")}${dim("]+")} ${dim("[")}${blue("ARG")}${dim("]+")}
@@ -83,8 +82,8 @@ ${dim("-f/--function mode:")}
 
 ${dim("-g/--git mode:")}
   This mode benchmarks and compares the same function across multiple Git revisions.
-  (This will be done via \`git worktree\` calls.)
-  All functions will take the same set of arguments.
+  Will check out the revisions and then return back to the original branch.
+  Expects the Elm project root to be the current working directory.
 
     ${bold("elm-bench")} ${dim("[")}-g ${blue("GIT_REVISION")}${dim("]+")} ${blue("QUALIFIED_FUNCTION")} ${dim("[")}${blue("ARG")}${dim("]+")}
 
@@ -92,7 +91,6 @@ ${dim("-g/--git mode:")}
 
 ${dim("-v/--version mode:")}
   This mode benchmarks and compares the same function across multiple Elm projects.
-  All functions will take the same set of arguments.
 
     ${bold("elm-bench")} ${dim("[")}-v ${blue("VERSION_DIR")}${dim("]+")} ${blue("QUALIFIED_FUNCTION")} ${dim("[")}${blue("ARG")}${dim("]+")}
 
@@ -534,12 +532,6 @@ async function runGitMode() {
 
   const originalBranch = (await exec("git rev-parse --abbrev-ref HEAD")).stdout.trim();
 
-  // Make a temporary git branch and check it out. This is so that we can `git
-  // worktree add` the currently checked out branch in case user `-g ...`'s it.
-  // Git otherwise doesn't allow having one branch in two worktrees.
-  const tempBranch = crypto.randomBytes(8).toString('hex')
-  await exec(`git checkout -b ${tempBranch}`);
-
   // Make and run a separate benchmark for each version
   let results = { results: [] };
   for (const revision of revisions) {
@@ -566,12 +558,8 @@ async function runGitMode() {
     await fs.mkdir(checkedOutDir, { recursive: true });
 
     // Check out the revision into the tempDir
-    try {
-      await exec(`git worktree add ${checkedOutDir} ${revision}`);
-    } catch (e) {
-      console.error(red(`Failed to check out revision: ${revision}`));
-      process.exit(1);
-    }
+    await exec(`git checkout ${revision}`);
+    await fs.cp(process.cwd(),checkedOutDir,{recursive: true});
 
     // Combine the existing elm.json dependencies with the runner ones
     const projectDirs = [tempDir, checkedOutDir];
@@ -613,21 +601,11 @@ async function runGitMode() {
     results.results = [...results.results, ...versionResults.results];
 
     if (!keep) {
-      // Clean up the tempDir
-      const {stderr} = await exec(`git worktree remove ${checkedOutDir}`);
-      if (stderr && stderr.length > 0) {
-        console.error(red(`Failed to clean git worktree for revision: ${revision}`));
-        console.error(stderr);
-        process.exit(1);
-      }
-
       await removeTempFiles({ tempDir });
     }
   }
 
-  // Check out the original git branch and remove the temporary one
   await exec(`git checkout ${originalBranch}`);
-  await exec(`git branch -D ${tempBranch}`);
 
   if (stopSpinner) {
     stopSpinner();
