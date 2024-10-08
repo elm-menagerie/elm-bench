@@ -103,7 +103,7 @@ ${dim("Flags:")}
   -h, --help            Show this help message
   -k, --keep            Keep benchmark code in a temporary directory and print its path
   -j, --json            Print results in JSON format, minimize verbosity
-  --compiler ELM_PATH   Path to the Elm compiler
+  --compiler ${blue("ELM_PATH")}   Path to the Elm compiler
 `);
 }
 
