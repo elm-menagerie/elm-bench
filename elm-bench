@@ -371,7 +371,7 @@ async function runFunctionMode() {
     const argsString =
       args.length > 1
         ? "s " + (argsButLast.map(blue).join(", ") + " and " + blue(lastArg))
-        : blue(lastArg);
+        : " " + blue(lastArg);
     console.log(
       `Benchmarking function${functionsString} with arg${argsString}.`
     );
