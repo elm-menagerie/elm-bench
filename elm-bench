@@ -13,27 +13,7 @@ A small CLI utility for easy benchmarking of Elm code.
 
 Dependencies: elm, node
 
-Example usage:
-  elm-bench -v ./old -v ./new remove 42 "List.range 0 1000"
-  elm-bench -f Main.removeOld -f Main.removeNew 42 "List.range 0 1000"
-
-Expects old and new to be directories containing Elm applications whose
-`src/Main.elm` exposes the `remove` function. Each `remove` function should
-accept an Int and a List Int. elm-bench will plug each `remove` function into
-an elm-benchmark program and give you the results on the CLI:
-
-$ elm-bench -v ./old -v ./new remove 42 "List.range 0 1000"
-Benchmarking function remove with args 42 and List.range 0 1000.
-  old   ████████████████████   316 ns/run   baseline
-  new   ████████████████       254 ns/run   20% faster
-
-$ elm-bench -f Main.removeOld -f Main.removeNew 42 "List.range 0 1000"
-Benchmarking functions Main.removeOld an Main.removeNew with args 42 and List.range 0 1000.
-  Main.removeOld   ████████████████████   316 ns/run   baseline
-  Main.removeNew   ████████████████       254 ns/run   20% faster
-
 Priority:
-TODO: JSON report mode
 TODO: Compare across Git revisions
 
 TODO: specify extra imports for the -f mode?
@@ -53,7 +33,7 @@ import * as childProcess from "node:child_process";
 const exec = promisify(childProcess.exec);
 
 const semverGt = (v1, v2) => {
-  const parse = v => v.split('.').map(Number);
+  const parse = (v) => v.split(".").map(Number);
   const [major1, minor1, patch1] = parse(v1);
   const [major2, minor2, patch2] = parse(v2);
 
@@ -62,8 +42,6 @@ const semverGt = (v1, v2) => {
   return patch1 > patch2;
 };
 
-const capitalize = (str) => str.charAt(0).toUpperCase() + str.slice(1);
-
 const green = (str) => `\x1b[32m${str}\x1b[0m`;
 const blue = (str) => `\x1b[34m${str}\x1b[0m`;
 const red = (str) => `\x1b[31m${str}\x1b[0m`;
@@ -71,27 +49,10 @@ const dim = (str) => `\x1b[2m${str}\x1b[0m`;
 const bold = (str) => `\x1b[1m${str}\x1b[0m`;
 
 function startSpinner() {
-  const characters = [
-    "⠀", "⠁", "⠂", "⠃", "⠄", "⠅", "⠆", "⠇", "⠈", "⠉", "⠊", "⠋", "⠌", "⠍", "⠎", "⠏",
-    "⠐", "⠑", "⠒", "⠓", "⠔", "⠕", "⠖", "⠗", "⠘", "⠙", "⠚", "⠛", "⠜", "⠝", "⠞", "⠟",
-    "⠠", "⠡", "⠢", "⠣", "⠤", "⠥", "⠦", "⠧", "⠨", "⠩", "⠪", "⠫", "⠬", "⠭", "⠮", "⠯",
-    "⠰", "⠱", "⠲", "⠳", "⠴", "⠵", "⠶", "⠷", "⠸", "⠹", "⠺", "⠻", "⠼", "⠽", "⠾", "⠿",
-    "⡀", "⡁", "⡂", "⡃", "⡄", "⡅", "⡆", "⡇", "⡈", "⡉", "⡊", "⡋", "⡌", "⡍", "⡎", "⡏",
-    "⡐", "⡑", "⡒", "⡓", "⡔", "⡕", "⡖", "⡗", "⡘", "⡙", "⡚", "⡛", "⡜", "⡝", "⡞", "⡟",
-    "⡠", "⡡", "⡢", "⡣", "⡤", "⡥", "⡦", "⡧", "⡨", "⡩", "⡪", "⡫", "⡬", "⡭", "⡮", "⡯",
-    "⡰", "⡱", "⡲", "⡳", "⡴", "⡵", "⡶", "⡷", "⡸", "⡹", "⡺", "⡻", "⡼", "⡽", "⡾", "⡿",
-    "⢀", "⢁", "⢂", "⢃", "⢄", "⢅", "⢆", "⢇", "⢈", "⢉", "⢊", "⢋", "⢌", "⢍", "⢎", "⢏",
-    "⢐", "⢑", "⢒", "⢓", "⢔", "⢕", "⢖", "⢗", "⢘", "⢙", "⢚", "⢛", "⢜", "⢝", "⢞", "⢟",
-    "⢠", "⢡", "⢢", "⢣", "⢤", "⢥", "⢦", "⢧", "⢨", "⢩", "⢪", "⢫", "⢬", "⢭", "⢮", "⢯",
-    "⢰", "⢱", "⢲", "⢳", "⢴", "⢵", "⢶", "⢷", "⢸", "⢹", "⢺", "⢻", "⢼", "⢽", "⢾", "⢿",
-    "⣀", "⣁", "⣂", "⣃", "⣄", "⣅", "⣆", "⣇", "⣈", "⣉", "⣊", "⣋", "⣌", "⣍", "⣎", "⣏",
-    "⣐", "⣑", "⣒", "⣓", "⣔", "⣕", "⣖", "⣗", "⣘", "⣙", "⣚", "⣛", "⣜", "⣝", "⣞", "⣟",
-    "⣠", "⣡", "⣢", "⣣", "⣤", "⣥", "⣦", "⣧", "⣨", "⣩", "⣪", "⣫", "⣬", "⣭", "⣮", "⣯",
-    "⣰", "⣱", "⣲", "⣳", "⣴", "⣵", "⣶", "⣷", "⣸", "⣹", "⣺", "⣻", "⣼", "⣽", "⣾", "⣿",
-  ];
+  const characters = [ "⠀", "⠁", "⠂", "⠃", "⠄", "⠅", "⠆", "⠇", "⠈", "⠉", "⠊", "⠋", "⠌", "⠍", "⠎", "⠏", "⠐", "⠑", "⠒", "⠓", "⠔", "⠕", "⠖", "⠗", "⠘", "⠙", "⠚", "⠛", "⠜", "⠝", "⠞", "⠟", "⠠", "⠡", "⠢", "⠣", "⠤", "⠥", "⠦", "⠧", "⠨", "⠩", "⠪", "⠫", "⠬", "⠭", "⠮", "⠯", "⠰", "⠱", "⠲", "⠳", "⠴", "⠵", "⠶", "⠷", "⠸", "⠹", "⠺", "⠻", "⠼", "⠽", "⠾", "⠿", "⡀", "⡁", "⡂", "⡃", "⡄", "⡅", "⡆", "⡇", "⡈", "⡉", "⡊", "⡋", "⡌", "⡍", "⡎", "⡏", "⡐", "⡑", "⡒", "⡓", "⡔", "⡕", "⡖", "⡗", "⡘", "⡙", "⡚", "⡛", "⡜", "⡝", "⡞", "⡟", "⡠", "⡡", "⡢", "⡣", "⡤", "⡥", "⡦", "⡧", "⡨", "⡩", "⡪", "⡫", "⡬", "⡭", "⡮", "⡯", "⡰", "⡱", "⡲", "⡳", "⡴", "⡵", "⡶", "⡷", "⡸", "⡹", "⡺", "⡻", "⡼", "⡽", "⡾", "⡿", "⢀", "⢁", "⢂", "⢃", "⢄", "⢅", "⢆", "⢇", "⢈", "⢉", "⢊", "⢋", "⢌", "⢍", "⢎", "⢏", "⢐", "⢑", "⢒", "⢓", "⢔", "⢕", "⢖", "⢗", "⢘", "⢙", "⢚", "⢛", "⢜", "⢝", "⢞", "⢟", "⢠", "⢡", "⢢", "⢣", "⢤", "⢥", "⢦", "⢧", "⢨", "⢩", "⢪", "⢫", "⢬", "⢭", "⢮", "⢯", "⢰", "⢱", "⢲", "⢳", "⢴", "⢵", "⢶", "⢷", "⢸", "⢹", "⢺", "⢻", "⢼", "⢽", "⢾", "⢿", "⣀", "⣁", "⣂", "⣃", "⣄", "⣅", "⣆", "⣇", "⣈", "⣉", "⣊", "⣋", "⣌", "⣍", "⣎", "⣏", "⣐", "⣑", "⣒", "⣓", "⣔", "⣕", "⣖", "⣗", "⣘", "⣙", "⣚", "⣛", "⣜", "⣝", "⣞", "⣟", "⣠", "⣡", "⣢", "⣣", "⣤", "⣥", "⣦", "⣧", "⣨", "⣩", "⣪", "⣫", "⣬", "⣭", "⣮", "⣯", "⣰", "⣱", "⣲", "⣳", "⣴", "⣵", "⣶", "⣷", "⣸", "⣹", "⣺", "⣻", "⣼", "⣽", "⣾", "⣿" ];
   const cursorEsc = {
-    hide: '\u001B[?25l',
-    show: '\u001B[?25h',
+    hide: "\u001B[?25l",
+    show: "\u001B[?25h",
   };
   process.stdout.write(cursorEsc.hide);
 
@@ -115,6 +76,7 @@ ${dim("Usage:")}
 ${dim("-f/--function mode:")}
   This mode benchmarks and compares multiple functions in the same Elm project.
   The project root is taken to be the current working directory.
+  All functions will take the same set of arguments.
   Provide one or more -f flags with qualified function names:
 
     ${bold("elm-bench")} ${dim("[")}-f ${blue("QUALIFIED_FUNCTION")}${dim("]+")} ${dim("[")}${blue("ARG")}${dim("]+")}
@@ -125,6 +87,7 @@ ${dim("-f/--function mode:")}
 ${dim("-v/--version mode:")}
   This mode benchmarks and compares the same function across multiple Elm projects.
   The projects are expected to be applications with a Main.elm file that exposes the function.
+  All functions will take the same set of arguments.
 
     ${bold("elm-bench")} ${dim("[")}-v ${blue("VERSION_DIR")}${dim("]+")} ${blue("FUNCTION")} ${dim("[")}${blue("ARG")}${dim("]+")}
 
@@ -134,8 +97,8 @@ ${dim("-v/--version mode:")}
 ${dim("Flags:")}
   -h, --help      Show this help message
   -k, --keep      Keep benchmark code in a temporary directory and print its path
+  -j, --json      Print results in JSON format, minimize verbosity
 `);
-
 }
 
 const mainJsCode = `const {Elm} = require('./elm.js');
@@ -144,7 +107,7 @@ const app = Elm.Benchmarks.init();
 
 app.ports.sendOutput.subscribe((output) => {
     console.log(JSON.stringify(output, null, 2));
-});`
+});`;
 
 const runnerElmJsonCode = `{
     "type": "application",
@@ -195,6 +158,11 @@ const { values, positionals } = parseArgs({
       short: "k",
       multiple: false,
     },
+    json: {
+      type: "boolean",
+      short: "j",
+      multiple: false,
+    },
     version: {
       type: "string",
       short: "v",
@@ -210,23 +178,39 @@ const { values, positionals } = parseArgs({
 });
 
 const keep = "keep" in values;
+const json = "json" in values;
 
-if ("help" in values || (!("version" in values) && !("function" in values) && positionals.length === 0)) {
-  console.log(`${bold("elm-bench")} - a small CLI utility for easy benchmarking of Elm code.`);
+if (
+  "help" in values ||
+  (!("version" in values) &&
+    !("function" in values) &&
+    positionals.length === 0)
+) {
+  console.log(
+    `${bold(
+      "elm-bench"
+    )} - a small CLI utility for easy benchmarking of Elm code.`
+  );
   usage();
   process.exit(0);
 }
 
 if ("version" in values && "function" in values) {
-  console.error(red("Can't use --version and --function at the same time, please choose only one."));
+  console.error(
+    red(
+      "Can't use --version and --function at the same time, please choose only one."
+    )
+  );
   usage();
   process.exit(1);
 }
 
 const mode = (() => {
-  if ("version" in values) { return "version"; }
-  else if ("function" in values) { return "function"; }
-  else {
+  if ("version" in values) {
+    return "version";
+  } else if ("function" in values) {
+    return "function";
+  } else {
     console.error(red("No --version or --function, please choose one"));
     usage();
     process.exit(1);
@@ -241,19 +225,26 @@ switch (mode) {
     await runFunctionMode();
     process.exit(0);
   default:
-    console.error(red("elm-bench bug: unknown mode. Please report this to martin@janiczek.cz. Thank you!"));
+    console.error(
+      red(
+        "elm-bench bug: unknown mode. Please report this to martin@janiczek.cz. Thank you!"
+      )
+    );
     process.exit(1);
 }
 
 async function runVersionMode() {
-
   const versions = [...values.version];
   const tempDirs = {};
 
   if (positionals.length < 1) {
-    console.error(red("No function name in --version mode. Please provide a function that's exposed in the ")
-      + blue("Main.elm")
-      + red(" of all the versions."));
+    console.error(
+      red(
+        "No function name in --version mode. Please provide a function that's exposed in the "
+      ) +
+        blue("Main.elm") +
+        red(" of all the versions.")
+    );
     usage();
     process.exit(1);
   }
@@ -266,18 +257,24 @@ async function runVersionMode() {
 
   const args = positionals.slice(1);
 
+  let stopSpinner;
   // Say we're starting
-  const argsButLast = args.slice(0, -1);
-  const [lastArg] = args.slice(-1);
-  const argsString = args.length > 1
-    ? "s " + (argsButLast.map(blue).join(", ") + " and " + blue(lastArg))
-    : " " + blue(lastArg);
-  console.log(`Benchmarking function ${blue(functionName)} with arg${argsString}.`);
+  if (!json) {
+    const argsButLast = args.slice(0, -1);
+    const [lastArg] = args.slice(-1);
+    const argsString =
+      args.length > 1
+        ? "s " + (argsButLast.map(blue).join(", ") + " and " + blue(lastArg))
+        : " " + blue(lastArg);
+    console.log(
+      `Benchmarking function ${blue(functionName)} with arg${argsString}.`
+    );
 
-  const stopSpinner = startSpinner();
-  process.on('exit', stopSpinner);
+    stopSpinner = startSpinner();
+    process.on("exit", stopSpinner);
+  }
 
-  // Make and run a separate benchmark for each version 
+  // Make and run a separate benchmark for each version
   let results = { results: [] };
   for (const version of versions) {
     const versionInvocations = [`( "${version}", Main.${functionName} )`];
@@ -290,8 +287,8 @@ async function runVersionMode() {
         benchmarkName: functionName,
         args,
         versionInvocations,
-      })
-    }
+      }),
+    };
 
     // Make a temporary directory with our template files
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "elm-bench-"));
@@ -301,7 +298,9 @@ async function runVersionMode() {
 
     // Combine the existing elm.json dependencies with the runner ones
     const projectDirs = [tempDir, version];
-    const combinedDependencies = await combineElmJsonDependencies({ projectDirs });
+    const combinedDependencies = await combineElmJsonDependencies({
+      projectDirs,
+    });
 
     // Copy this project to the tempDir
     await copyElmProject(version, tempDir);
@@ -309,7 +308,12 @@ async function runVersionMode() {
     const tempElmJsonPath = path.join(tempDir, "elm.json");
     const tempElmJson = JSON.parse(await fs.readFile(tempElmJsonPath, "utf-8"));
     tempElmJson.dependencies = combinedDependencies;
-    if (!(tempElmJson["source-directories"].includes("src") || tempElmJson["source-directories"].includes("src/"))) {
+    if (
+      !(
+        tempElmJson["source-directories"].includes("src") ||
+        tempElmJson["source-directories"].includes("src/")
+      )
+    ) {
       tempElmJson["source-directories"].push("src");
     }
 
@@ -320,7 +324,10 @@ async function runVersionMode() {
     );
 
     // Compile and run everything!
-    await runElmMake({ cwd: tempDir, file: path.join("src", "Benchmarks.elm") });
+    await runElmMake({
+      cwd: tempDir,
+      file: path.join("src", "Benchmarks.elm"),
+    });
     const versionResults = await runGeneratedProgram({ tempDir });
     results.results = [...results.results, ...versionResults.results];
 
@@ -329,12 +336,18 @@ async function runVersionMode() {
     }
   }
 
-  stopSpinner();
-  printResults({ results, cases: versions });
-  if (keep) {
-    console.log("\nBenchmark code is in the following directories:");
-    for (const [version, tempDir] of Object.entries(tempDirs)) {
-      console.log(`- ${version}: ${blue(tempDir)}`);
+  if (stopSpinner) {
+    stopSpinner();
+  }
+  if (json) {
+    printJsonResults({ results, cases: versions, keep, tempDirs });
+  } else {
+    printResults({ results, cases: versions });
+    if (keep) {
+      console.log("\nBenchmark code is in the following directories:");
+      for (const [version, tempDir] of Object.entries(tempDirs)) {
+        console.log(`- ${version}: ${blue(tempDir)}`);
+      }
     }
   }
 }
@@ -346,19 +359,26 @@ async function runFunctionMode() {
   }
   const args = positionals;
 
-  // Say we're starting
-  const argsButLast = args.slice(0, -1);
-  const [lastArg] = args.slice(-1);
-  const functionsString = functions.length > 1
-    ? "s " + (functions.map(blue).join(", "))
-    : blue(functions[0]);
-  const argsString = args.length > 1
-    ? "s " + (argsButLast.map(blue).join(", ") + " and " + blue(lastArg))
-    : blue(lastArg);
-  console.log(`Benchmarking function${functionsString} with arg${argsString}.`);
+  let stopSpinner;
+  if (!json) {
+    // Say we're starting
+    const argsButLast = args.slice(0, -1);
+    const [lastArg] = args.slice(-1);
+    const functionsString =
+      functions.length > 1
+        ? "s " + functions.map(blue).join(", ")
+        : blue(functions[0]);
+    const argsString =
+      args.length > 1
+        ? "s " + (argsButLast.map(blue).join(", ") + " and " + blue(lastArg))
+        : blue(lastArg);
+    console.log(
+      `Benchmarking function${functionsString} with arg${argsString}.`
+    );
 
-  const stopSpinner = startSpinner();
-  process.on('exit', stopSpinner);
+    stopSpinner = startSpinner();
+    process.on("exit", stopSpinner);
+  }
 
   const projectDir = process.cwd();
 
@@ -366,13 +386,13 @@ async function runFunctionMode() {
 
   // From: ["Main.removeOld", "Other.Optimized.removeNew"]
   // To:   ["Main", "Other.Optimized"]
-  const imports = functions.map((func) => func.split(".").slice(0, -1).join("."));
+  const imports = functions.map((func) =>
+    func.split(".").slice(0, -1).join(".")
+  );
 
   // From: ["Main.removeOld", "Other.Optimized.removeNew"]
   // To:   [`( "Main.removeOld", Main.removeOld )`, `( "Other.Optimized.removeNew", Other.Optimized.removeNew )`]
-  const versionInvocations = functions.map((func) =>
-    `( "${func}", ${func} )`
-  );
+  const versionInvocations = functions.map((func) => `( "${func}", ${func} )`);
 
   const templates = {
     "main.js": mainJsCode,
@@ -382,8 +402,8 @@ async function runFunctionMode() {
       benchmarkName: "benchmark",
       args,
       versionInvocations,
-    })
-  }
+    }),
+  };
 
   // Make a temporary directory with our template files
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "elm-bench-"));
@@ -408,8 +428,9 @@ async function runFunctionMode() {
   // Copy files
   const currentElmJson = JSON.parse(await fs.readFile("elm.json", "utf-8"));
   const srcDirs = currentElmJson["source-directories"] ?? ["src"];
-  const elmFiles = await Promise.all(srcDirs.map(findElmFiles))
-    .then(files => files.flat());
+  const elmFiles = await Promise.all(srcDirs.map(findElmFiles)).then((files) =>
+    files.flat()
+  );
 
   for (const file of elmFiles) {
     const relativePath = path.relative(projectDir, file);
@@ -421,7 +442,9 @@ async function runFunctionMode() {
 
   // Make the final elm.json
   const projectDirs = [tempDir, projectDir];
-  const combinedDependencies = await combineElmJsonDependencies({ projectDirs });
+  const combinedDependencies = await combineElmJsonDependencies({
+    projectDirs,
+  });
 
   const tempElmJsonPath = path.join(tempDir, "elm.json");
   const tempElmJson = JSON.parse(await fs.readFile(tempElmJsonPath, "utf-8"));
@@ -437,17 +460,22 @@ async function runFunctionMode() {
   await runElmMake({ cwd: tempDir, file: path.join("src", "Benchmarks.elm") });
   const results = await runGeneratedProgram({ tempDir });
 
-  stopSpinner();
-  printResults({ results, cases: functions });
-
-  if (keep) {
-    console.log("\nBenchmark code is in the following directory:");
-    console.log(blue(tempDir));
+  if (stopSpinner) {
+    stopSpinner();
+  }
+  if (json) {
+    printJsonResults({ results, cases: functions, keep, tempDirs: [tempDir] });
   } else {
-    await removeTempFiles({ tempDir });
-
+    printResults({ results, cases: functions });
+    if (keep) {
+      console.log("\nBenchmark code is in the following directory:");
+      console.log(blue(tempDir));
+    }
   }
 
+  if (!keep) {
+    await removeTempFiles({ tempDir });
+  }
 }
 
 function printResults({ results, cases }) {
@@ -472,9 +500,14 @@ function printResults({ results, cases }) {
   const maxNameLength = Math.max(...cases.map((v) => v.length));
   const maxBarLength = 20;
 
-  const fastestIndex = results.results.reduce((minIndex, result, currentIndex, array) => {
-    return result.nsPerRun < array[minIndex].nsPerRun ? currentIndex : minIndex;
-  }, 0);
+  const fastestIndex = results.results.reduce(
+    (minIndex, result, currentIndex, array) => {
+      return result.nsPerRun < array[minIndex].nsPerRun
+        ? currentIndex
+        : minIndex;
+    },
+    0
+  );
 
   process.stdout.write("\r \r\n");
 
@@ -482,14 +515,14 @@ function printResults({ results, cases }) {
     const { nsPerRun } = result;
     const case_ = cases[index];
     const barLength = Math.round((nsPerRun / baseline) * maxBarLength);
-    const bar = '█'.repeat(barLength);
+    const bar = "█".repeat(barLength);
     const nsRounded = Math.round(nsPerRun);
-    const padding = ' '.repeat(maxNameLength - case_.length);
+    const padding = " ".repeat(maxNameLength - case_.length);
     const isFastest = index === fastestIndex;
 
-    let comparison = '';
+    let comparison = "";
     if (index === 0) {
-      comparison = 'baseline';
+      comparison = "baseline";
     } else {
       const percentDiff = Math.round((nsPerRun / baseline - 1) * 100);
       if (percentDiff > 0) {
@@ -497,14 +530,18 @@ function printResults({ results, cases }) {
       } else if (percentDiff < 0) {
         comparison = `${Math.abs(percentDiff)}% faster`;
       } else {
-        comparison = 'same speed';
+        comparison = "same speed";
       }
     }
 
     const caseC = isFastest ? green(case_) : case_;
     const comparisonC = isFastest ? green(comparison) : comparison;
 
-    console.log(`  ${caseC}${padding}   ${bar.padEnd(maxBarLength)}   ${nsRounded} ns/run   ${comparisonC}`);
+    console.log(
+      `  ${caseC}${padding}   ${bar.padEnd(
+        maxBarLength
+      )}   ${nsRounded} ns/run   ${comparisonC}`
+    );
   });
 
   if (results.warning) {
@@ -517,11 +554,15 @@ async function removeTempFiles({ tempDir }) {
 }
 
 function warnAboutNoArgs({ functionName }) {
-  console.error(red("No arguments. This will make the benchmark meaningless (the benchmarked function is precomputed and benchmarks will take no time). Please make the function")
-    + (functionName == null ? 's' : ' ' + blue(functionName))
-    + red(" take an ")
-    + blue("()")
-    + red(" argument and pass it here."));
+  console.error(
+    red(
+      "No arguments. This will make the benchmark meaningless (the benchmarked function is precomputed and benchmarks will take no time). Please make the function"
+    ) +
+      (functionName == null ? "s" : " " + blue(functionName)) +
+      red(" take an ") +
+      blue("()") +
+      red(" argument and pass it here.")
+  );
   usage();
   process.exit(1);
 }
@@ -589,9 +630,12 @@ async function findElmFiles(dir) {
 }
 
 async function runGeneratedProgram({ tempDir }) {
-  const nodeCommand = 'node main.js';
+  const nodeCommand = "node main.js";
   try {
-    const { stdout, stderr } = await exec(nodeCommand, { cwd: tempDir, encoding: "utf-8" });
+    const { stdout, stderr } = await exec(nodeCommand, {
+      cwd: tempDir,
+      encoding: "utf-8",
+    });
     if (stderr && stderr.length > 0) {
       console.error("Node execution errors:");
       console.error(stderr);
@@ -608,7 +652,9 @@ async function runGeneratedProgram({ tempDir }) {
 function runnerElmCode({ imports, benchmarkName, args, versionInvocations }) {
   const importsCode = imports.map((imp) => `import ${imp}`).join("\n");
   const argsCode = args.map((_, i) => `arg${i}`).join(" ");
-  const argDefsCode = args.map((arg, i) => `arg${i} =\n    ${arg}`).join("\n\n\n");
+  const argDefsCode = args
+    .map((arg, i) => `arg${i} =\n    ${arg}`)
+    .join("\n\n\n");
   const versionsCode = `[ ${versionInvocations.join("\n        , ")}
         ]`;
 
@@ -657,9 +703,9 @@ async function writeTemplatesIntoTempDir({ templates, tempDir }) {
 
 async function copyElmProject(src, dest) {
   // Read the "source-directories" from the elm.json file
-  const elmJsonPath = path.join(src, 'elm.json');
-  const elmJson = JSON.parse(await fs.readFile(elmJsonPath, 'utf-8'));
-  const sourceDirs = elmJson['source-directories'] ?? ['src'];
+  const elmJsonPath = path.join(src, "elm.json");
+  const elmJson = JSON.parse(await fs.readFile(elmJsonPath, "utf-8"));
+  const sourceDirs = elmJson["source-directories"] ?? ["src"];
 
   // Copy each source directory
   for (const sourceDir of sourceDirs) {
@@ -680,8 +726,36 @@ async function copyRecursiveElm(src, dest) {
     }
   } else {
     // If it's a file, copy it directly
-    if (src.endsWith('.elm')) {
+    if (src.endsWith(".elm")) {
       await fs.copyFile(src, dest);
     }
   }
+}
+
+function printJsonResults({ results, cases, keep, tempDirs }) {
+  /* Example of `results`:
+
+    {
+      "results": [
+        { "name": [ "remove", "listRemoveOld" ], "nsPerRun": 316.43958596194926 },
+        { "name": [ "remove", "listRemoveNew" ], "nsPerRun": 254.48914830045732 }
+      ],
+      "warning": null
+    }
+
+  Output:
+
+    [ 
+      { "name": "old", "nsPerRun": 316.43958596194926, "benchmarkDir": "/tmp/elm-bench-old", "warning": null },
+      { "name": "new", "nsPerRun": 254.48914830045732, "benchmarkDir": "/tmp/elm-bench-new", "warning": null }
+    ]
+
+  */
+  const json = results.results.map((result, i) => ({
+    name: cases[i],
+    nsPerRun: result.nsPerRun,
+    benchmarkDir: keep ? tempDirs[cases[i]] : null,
+    warning: results.warning ?? null,
+  }));
+  process.stdout.write(JSON.stringify(json, null, 2) + "\n");
 }
