@@ -1,10 +1,4 @@
-module Main exposing (main, removeNew, removeOld)
-
-import Html
-
-
-main =
-    Html.text ""
+module Remove exposing (removeNew, removeOld)
 
 
 removeOld : a -> List a -> List a

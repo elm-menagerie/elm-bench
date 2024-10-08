@@ -1,18 +1,15 @@
 {
     "type": "package",
-    "name": "Janiczek/elm-priority-queue",
-    "summary": "A (min, max) priority queue",
+    "name": "foobar/remove",
+    "summary": "Remove from a list",
     "license": "MIT",
-    "version": "1.1.1",
+    "version": "1.0.0",
     "exposed-modules": [
-        "MinPriorityQueue",
-        "MaxPriorityQueue"
+        "Remove"
     ],
     "elm-version": "0.19.0 <= v < 0.20.0",
     "dependencies": {
         "elm/core": "1.0.0 <= v < 2.0.0"
     },
-    "test-dependencies": {
-        "elm-explorations/test": "2.0.1 <= v < 3.0.0"
-    }
+    "test-dependencies": {}
 }

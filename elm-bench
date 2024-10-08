@@ -84,6 +84,7 @@ ${dim("-f/--function mode:")}
 
 ${dim("-g/--git mode:")}
   This mode benchmarks and compares the same function across multiple Git revisions.
+  (This will be done via \`git worktree\` calls.)
   All functions will take the same set of arguments.
 
     ${bold("elm-bench")} ${dim("[")}-g ${blue("GIT_REVISION")}${dim("]+")} ${blue("QUALIFIED_FUNCTION")} ${dim("[")}${blue("ARG")}${dim("]+")}
@@ -92,7 +93,6 @@ ${dim("-g/--git mode:")}
 
 ${dim("-v/--version mode:")}
   This mode benchmarks and compares the same function across multiple Elm projects.
-  The projects are expected to be Elm applications.
   All functions will take the same set of arguments.
 
     ${bold("elm-bench")} ${dim("[")}-v ${blue("VERSION_DIR")}${dim("]+")} ${blue("QUALIFIED_FUNCTION")} ${dim("[")}${blue("ARG")}${dim("]+")}
@@ -744,16 +744,31 @@ async function combineElmJsonDependencies({ projectDirs }) {
     const elmJsonPath = path.join(project, "elm.json");
     const elmJson = JSON.parse(await fs.readFile(elmJsonPath, "utf-8"));
 
-    for (const depType of ["direct", "indirect"]) {
-      for (const [pkg, ver] of Object.entries(elmJson.dependencies[depType])) {
+    if (elmJson.type === "application") {
+      for (const depType of ["direct", "indirect"]) {
+        for (const [pkg, ver] of Object.entries(elmJson.dependencies[depType])) {
+          if (
+            // not in the acc yet
+            !acc[depType][pkg] ||
+            // higher version than the one in acc
+            semverGt(ver, acc[depType][pkg])
+          ) {
+            // put it into acc
+            acc[depType][pkg] = ver;
+          }
+        }
+      }
+    } else if (elmJson.type === "package") {
+      for (const [pkg, constraint] of Object.entries(elmJson.dependencies)) {
+        const lowerBound = constraint.split(" ")[0];
         if (
           // not in the acc yet
-          !acc[depType][pkg] ||
+          !acc.direct[pkg] ||
           // higher version than the one in acc
-          semverGt(ver, acc[depType][pkg])
+          semverGt(lowerBound, acc.direct[pkg])
         ) {
           // put it into acc
-          acc[depType][pkg] = ver;
+          acc.direct[pkg] = lowerBound;
         }
       }
     }

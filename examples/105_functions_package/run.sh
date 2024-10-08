@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-elm-bench -f Main.removeOld -f Main.removeNew 42 "List.range 0 1000"
+elm-bench -f Remove.removeOld -f Remove.removeNew 42 "List.range 0 1000"
