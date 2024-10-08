@@ -11,10 +11,7 @@ elm-bench
 ---------
 A small CLI utility for easy benchmarking of Elm code.
 
-Dependencies: elm, node
-
-Priority:
-TODO: Compare across Git revisions
+Dependencies: elm, node, git
 
 TODO: specify extra imports for the -f mode?
 TODO: check the Debug.toString representation of the versions is the same, and show a warning if it's not
@@ -84,15 +81,23 @@ ${dim("-f/--function mode:")}
     elm-bench ${dim("-f")} Foobar.run ${dim("-f")} Foobar.Optimized.run 1024
     elm-bench ${dim("-f")} Main.removeOld ${dim("-f")} Main.removeNew 42 "List.range 0 1000"
 
-${dim("-v/--version mode:")}
-  This mode benchmarks and compares the same function across multiple Elm projects.
-  The projects are expected to be applications with a Main.elm file that exposes the function.
+${dim("-g/--git mode:")}
+  This mode benchmarks and compares the same function across multiple Git revisions.
   All functions will take the same set of arguments.
 
-    ${bold("elm-bench")} ${dim("[")}-v ${blue("VERSION_DIR")}${dim("]+")} ${blue("FUNCTION")} ${dim("[")}${blue("ARG")}${dim("]+")}
+    ${bold("elm-bench")} ${dim("[")}-g ${blue("GIT_REVISION")}${dim("]+")} ${blue("QUALIFIED_FUNCTION")} ${dim("[")}${blue("ARG")}${dim("]+")}
 
-    elm-bench ${dim("-v")} ./old ${dim("-v")} ./new remove 42 "List.range 0 1000"
-    elm-bench ${dim("-v")} ./old ${dim("-v")} ./new scenario "()"
+    elm-bench ${dim("-g")} main ${dim("-g")} HEAD ${dim("-g")} 3de0823 Foobar.remove 42 "List.range 0 1000"
+
+${dim("-v/--version mode:")}
+  This mode benchmarks and compares the same function across multiple Elm projects.
+  The projects are expected to be Elm applications.
+  All functions will take the same set of arguments.
+
+    ${bold("elm-bench")} ${dim("[")}-v ${blue("VERSION_DIR")}${dim("]+")} ${blue("QUALIFIED_FUNCTION")} ${dim("[")}${blue("ARG")}${dim("]+")}
+
+    elm-bench ${dim("-v")} ./old ${dim("-v")} ./new Foobar.remove 42 "List.range 0 1000"
+    elm-bench ${dim("-v")} ./old ${dim("-v")} ./new Main.scenario "()"
 
 ${dim("Flags:")}
   -h, --help      Show this help message
@@ -168,6 +173,11 @@ const { values, positionals } = parseArgs({
       short: "v",
       multiple: true,
     },
+    git: {
+      type: "string",
+      short: "g",
+      multiple: true,
+    },
     function: {
       type: "string",
       short: "f",
@@ -180,11 +190,13 @@ const { values, positionals } = parseArgs({
 const keep = "keep" in values;
 const json = "json" in values;
 
+const usesGit = "git" in values;
+const usesVersion = "version" in values;
+const usesFunction = "function" in values;
+
 if (
   "help" in values ||
-  (!("version" in values) &&
-    !("function" in values) &&
-    positionals.length === 0)
+  (!usesVersion && !usesFunction && !usesGit && positionals.length === 0)
 ) {
   console.log(
     `${bold(
@@ -195,23 +207,21 @@ if (
   process.exit(0);
 }
 
-if ("version" in values && "function" in values) {
-  console.error(
-    red(
-      "Can't use --version and --function at the same time, please choose only one."
-    )
-  );
+if ([usesGit,usesVersion,usesFunction].filter(x=>x).length > 1) {
+  console.error(red("Can only use one of --version, --function or --git at the same time."));
   usage();
   process.exit(1);
 }
 
 const mode = (() => {
-  if ("version" in values) {
+  if (usesVersion) {
     return "version";
-  } else if ("function" in values) {
+  } else if (usesFunction) {
     return "function";
+  } else if (usesGit) {
+    return "git";
   } else {
-    console.error(red("No --version or --function, please choose one"));
+    console.error(red("No --version, --function or --git, please choose one"));
     usage();
     process.exit(1);
   }
@@ -223,6 +233,9 @@ switch (mode) {
     process.exit(0);
   case "function":
     await runFunctionMode();
+    process.exit(0);
+  case "git":
+    await runGitMode();
     process.exit(0);
   default:
     console.error(
@@ -277,8 +290,8 @@ async function runVersionMode() {
   // Make and run a separate benchmark for each version
   let results = { results: [] };
   for (const version of versions) {
-    const versionInvocations = [`( "${version}", Main.${functionName} )`];
-    const imports = ["Main"];
+    const versionInvocations = [`( "${version}", ${functionName} )`]; // ( "v1.2.3", Foobar.Optimized.xyz )
+    const imports = [functionName.split(".").slice(0, -1).join(".")]; // Foobar.Optimized.xyz -> Foobar.Optimized
     const templates = {
       "main.js": mainJsCode,
       "elm.json": runnerElmJsonCode,
@@ -478,6 +491,142 @@ async function runFunctionMode() {
   }
 }
 
+async function runGitMode() {
+  const revisions = [...values.git];
+  const tempDirs = {};
+
+  if (positionals.length < 1) {
+    console.error(red("No function name in --git mode. Please provide a function that's exposed in the "));
+  }
+
+  const functionName = positionals[0];
+
+  if (positionals.length < 2) {
+    warnAboutNoArgs({ functionName });
+  }
+
+  const args = positionals.slice(1);
+
+  let stopSpinner;
+  // Say we're starting
+  if (!json) {
+    const argsButLast = args.slice(0, -1);
+    const [lastArg] = args.slice(-1);
+    const argsString =
+      args.length > 1
+        ? "s " + (argsButLast.map(blue).join(", ") + " and " + blue(lastArg))
+        : " " + blue(lastArg);
+    console.log(
+      `Benchmarking function ${blue(functionName)} with arg${argsString}.`
+    );
+
+    stopSpinner = startSpinner();
+    process.on("exit", stopSpinner);
+  }
+
+  // Make and run a separate benchmark for each version
+  let results = { results: [] };
+  for (const revision of revisions) {
+    const versionInvocations = [`( "${revision}", ${functionName} )`]; // ( "v1.2.3", Foobar.Optimized.xyz )
+    const imports = [functionName.split(".").slice(0, -1).join(".")]; // Foobar.Optimized.xyz -> Foobar.Optimized
+    const templates = {
+      "main.js": mainJsCode,
+      "elm.json": runnerElmJsonCode,
+      "src/Benchmarks.elm": runnerElmCode({
+        imports,
+        benchmarkName: functionName,
+        args,
+        versionInvocations,
+      }),
+    };
+
+    // Make a temporary directory with our template files
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "elm-bench-"));
+    tempDirs[revision] = tempDir;
+
+    await writeTemplatesIntoTempDir({ templates, tempDir });
+
+    const checkedOutDir = path.join(tempDir, "checked-out");
+    await fs.mkdir(checkedOutDir, { recursive: true });
+
+    // Check out the revision into the tempDir
+    const {stderr} = await exec(`git worktree add ${checkedOutDir} ${revision}`);
+    if (stderr && stderr.length > 0) {
+      console.error(red(`Failed to check out revision: ${revision}`));
+      console.error(stderr);
+      process.exit(1);
+    }
+
+    // Combine the existing elm.json dependencies with the runner ones
+    const projectDirs = [tempDir, checkedOutDir];
+    const combinedDependencies = await combineElmJsonDependencies({
+      projectDirs,
+    });
+
+    const checkedOutElmJsonPath = path.join(checkedOutDir, "elm.json");
+    const checkedOutElmJson = JSON.parse(await fs.readFile(checkedOutElmJsonPath, "utf-8"));
+    const checkedOutSrcDirs = checkedOutElmJson["source-directories"] ?? ["src"];
+
+    const tempElmJsonPath = path.join(tempDir, "elm.json");
+    const tempElmJson = JSON.parse(await fs.readFile(tempElmJsonPath, "utf-8"));
+    tempElmJson.dependencies = combinedDependencies;
+    if (
+      !(
+        tempElmJson["source-directories"].includes("src") ||
+        tempElmJson["source-directories"].includes("src/")
+      )
+    ) {
+      tempElmJson["source-directories"].push("src");
+    }
+    for (const srcDir of checkedOutSrcDirs) {
+      tempElmJson["source-directories"].push(path.join("checked-out", srcDir));
+    }
+
+    await fs.writeFile(
+      tempElmJsonPath,
+      JSON.stringify(tempElmJson, null, 4),
+      "utf-8"
+    );
+
+    // Compile and run everything!
+    await runElmMake({
+      cwd: tempDir,
+      file: path.join("src", "Benchmarks.elm"),
+    });
+    const versionResults = await runGeneratedProgram({ tempDir });
+    results.results = [...results.results, ...versionResults.results];
+
+    if (!keep) {
+      // Clean up the tempDir
+      const {stderr} = await exec(`git worktree remove ${checkedOutDir}`);
+      if (stderr && stderr.length > 0) {
+        console.error(red(`Failed to clean git worktree for revision: ${revision}`));
+        console.error(stderr);
+        process.exit(1);
+      }
+
+      await removeTempFiles({ tempDir });
+    }
+  }
+
+  if (stopSpinner) {
+    stopSpinner();
+  }
+  if (json) {
+    printJsonResults({ results, cases: revisions, keep, tempDirs });
+  } else {
+    printResults({ results, cases: revisions });
+    if (keep) {
+      console.log("\nBenchmark code is in the following directories:");
+      for (const [version, tempDir] of Object.entries(tempDirs)) {
+        console.log(`- ${version}: ${blue(tempDir)}`);
+      }
+    }
+  }
+}
+
+// HELPERS
+
 function printResults({ results, cases }) {
   /* Example of `results`:
 
@@ -604,17 +753,12 @@ async function combineElmJsonDependencies({ projectDirs }) {
 
 async function runElmMake({ file, cwd }) {
   const elmMakeCommand = `elm make ${file} --optimize --output elm.js`;
-  try {
-    const { stderr } = await exec(elmMakeCommand, { cwd, encoding: "utf-8" });
-    if (stderr && stderr.length > 0) {
-      if (stderr) {
-        console.error("Elm make errors:");
-        console.error(stderr);
-      }
+  const { stderr } = await exec(elmMakeCommand, { cwd, encoding: "utf-8" });
+  if (stderr && stderr.length > 0) {
+    if (stderr) {
+      console.error("Elm make errors:");
+      console.error(stderr);
     }
-  } catch (error) {
-    console.error("Error running elm make:", error);
-    throw error;
   }
 }
 
@@ -631,22 +775,17 @@ async function findElmFiles(dir) {
 
 async function runGeneratedProgram({ tempDir }) {
   const nodeCommand = "node main.js";
-  try {
-    const { stdout, stderr } = await exec(nodeCommand, {
-      cwd: tempDir,
-      encoding: "utf-8",
-    });
-    if (stderr && stderr.length > 0) {
-      console.error("Node execution errors:");
-      console.error(stderr);
-    }
-
-    const results = JSON.parse(stdout);
-    return results;
-  } catch (error) {
-    console.error("Error running the generated program:", error);
-    throw error;
+  const { stdout, stderr } = await exec(nodeCommand, {
+    cwd: tempDir,
+    encoding: "utf-8",
+  });
+  if (stderr && stderr.length > 0) {
+    console.error("Node execution errors:");
+    console.error(stderr);
   }
+
+  const results = JSON.parse(stdout);
+  return results;
 }
 
 function runnerElmCode({ imports, benchmarkName, args, versionInvocations }) {

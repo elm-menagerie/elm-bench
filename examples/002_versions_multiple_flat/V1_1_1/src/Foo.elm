@@ -1,4 +1,4 @@
-module Main exposing (scenario)
+module Foo exposing (scenario)
 
 import MinPriorityQueue
 
