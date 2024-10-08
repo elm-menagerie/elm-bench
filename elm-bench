@@ -24,6 +24,7 @@ TODO: stop spinner before each error message
 import { parseArgs, promisify } from "node:util";
 import fs from "node:fs/promises";
 import path from "node:path";
+import crypto from "node:crypto";
 import os from "node:os";
 import * as childProcess from "node:child_process";
 
@@ -523,6 +524,22 @@ async function runGitMode() {
     stopSpinner = startSpinner();
     process.on("exit", stopSpinner);
   }
+  
+  // Error if the cwd is not a git repository
+  try {
+    await exec("git rev-parse --is-inside-work-tree");
+  } catch (e) {
+    console.error(red("You must run elm-bench -g inside a git repository."));
+    process.exit(1);
+  }
+
+  const originalBranch = (await exec("git rev-parse --abbrev-ref HEAD")).stdout.trim();
+
+  // Make a temporary git branch and check it out. This is so that we can `git
+  // worktree add` the currently checked out branch in case user `-g ...`'s it.
+  // Git otherwise doesn't allow having one branch in two worktrees.
+  const tempBranch = crypto.randomBytes(8).toString('hex')
+  await exec(`git checkout -b ${tempBranch}`);
 
   // Make and run a separate benchmark for each version
   let results = { results: [] };
@@ -550,10 +567,10 @@ async function runGitMode() {
     await fs.mkdir(checkedOutDir, { recursive: true });
 
     // Check out the revision into the tempDir
-    const {stderr} = await exec(`git worktree add ${checkedOutDir} ${revision}`);
-    if (stderr && stderr.length > 0) {
+    try {
+      await exec(`git worktree add ${checkedOutDir} ${revision}`);
+    } catch (e) {
       console.error(red(`Failed to check out revision: ${revision}`));
-      console.error(stderr);
       process.exit(1);
     }
 
@@ -608,6 +625,10 @@ async function runGitMode() {
       await removeTempFiles({ tempDir });
     }
   }
+
+  // Check out the original git branch and remove the temporary one
+  await exec(`git checkout ${originalBranch}`);
+  await exec(`git branch -D ${tempBranch}`);
 
   if (stopSpinner) {
     stopSpinner();
