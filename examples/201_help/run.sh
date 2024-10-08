@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-elm-bench -h
+elm-bench --help
