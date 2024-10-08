@@ -16,7 +16,6 @@ Dependencies: elm, node, git
 TODO: specify extra imports for the -f mode?
 TODO: check the Debug.toString representation of the versions is the same, and show a warning if it's not
 TODO: use us, ms, s when it gets too big
-TODO: allow specifying the path to the Elm compiler
 TODO: be robust against arbitrary paths
 TODO: stop spinner before each error message
 */
@@ -101,9 +100,10 @@ ${dim("-v/--version mode:")}
     elm-bench ${dim("-v")} ./old ${dim("-v")} ./new Main.scenario "()"
 
 ${dim("Flags:")}
-  -h, --help      Show this help message
-  -k, --keep      Keep benchmark code in a temporary directory and print its path
-  -j, --json      Print results in JSON format, minimize verbosity
+  -h, --help            Show this help message
+  -k, --keep            Keep benchmark code in a temporary directory and print its path
+  -j, --json            Print results in JSON format, minimize verbosity
+  --compiler ELM_PATH   Path to the Elm compiler
 `);
 }
 
@@ -184,12 +184,17 @@ const { values, positionals } = parseArgs({
       short: "f",
       multiple: true,
     },
+    compiler: {
+      type: "string",
+      multiple: false,
+    },
   },
   allowPositionals: true,
 });
 
 const keep = "keep" in values;
 const json = "json" in values;
+const elmCompiler = "compiler" in values ? values.compiler : "elm";
 
 const usesGit = "git" in values;
 const usesVersion = "version" in values;
@@ -252,13 +257,7 @@ async function runVersionMode() {
   const tempDirs = {};
 
   if (positionals.length < 1) {
-    console.error(
-      red(
-        "No function name in --version mode. Please provide a function that's exposed in the "
-      ) +
-        blue("Main.elm") +
-        red(" of all the versions.")
-    );
+    console.error(red("No function name in --version mode. Please provide a function that's exposed in all the versions."));
     usage();
     process.exit(1);
   }
@@ -788,7 +787,7 @@ async function combineElmJsonDependencies({ projectDirs }) {
 }
 
 async function runElmMake({ file, cwd }) {
-  const elmMakeCommand = `elm make ${file} --optimize --output elm.js`;
+  const elmMakeCommand = `${elmCompiler} make ${file} --optimize --output elm.js`;
   const { stderr } = await exec(elmMakeCommand, { cwd, encoding: "utf-8" });
   if (stderr && stderr.length > 0) {
     if (stderr) {
