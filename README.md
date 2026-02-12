@@ -1,4 +1,4 @@
-A small CLI utility for easy benchmarking of Elm code.
+A small CLI [utility](https://github.com/elm-menagerie/elm-bench/blob/main/elm-bench) for easy benchmarking of Elm code.
 
 * [Check the demo!](https://www.youtube.com/watch?v=8_eBf8pbxeE)
 * [See on Gumroad](https://martinjaniczek.gumroad.com/l/elm-bench)
