@@ -122,7 +122,7 @@ const runnerElmJsonCode = `{
     "source-directories": [
         "src"
     ],
-    "elm-version": "0.19.1",
+    "elm-version": "0.19.2",
     "dependencies": {
         "direct": {
             "Janiczek/elm-benchmark-cli-runner": "1.0.0",
